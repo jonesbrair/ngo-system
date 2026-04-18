@@ -2,9 +2,35 @@
 import ProcurementRequisitionPage from "./ProcurementRequisitionPage";
 import { AppIcon, IconBadge } from "./uiIcons";
 import MessagesModule from "./hr/messaging/MessagesModule";
+import { supabase } from "./lib/supabaseClient";
 const inspireLogo = "https://inspireyouthdev.org/wp-content/uploads/2024/10/cropped-Asset-260.png";
 
 // â"€â"€ Identity â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+async function fetchUsersFromDB() {
+  const { data, error } = await supabase.from("users").select("*");
+  if (error) { console.warn("Supabase users error:", error.message); return; }
+  if (!data?.length) { console.log("Supabase users: table is empty"); return; }
+  data.forEach(row => {
+    const exists = _users.find(u => u.email === row.email);
+    if (!exists) {
+      _users.push({
+        id:           row.id,
+        name:         row.name,
+        email:        row.email,
+        role:         row.role,
+        moduleRole:   row.module_role,
+        jobTitle:     row.job_title,
+        dept:         row.department,
+        avatar:       row.avatar_initials,
+        supervisorId: row.supervisor_id,
+        eSignature:   row.e_signature,
+        isActive:     row.is_active ?? true,
+      });
+    }
+  });
+  console.log("Supabase users merged:", data.length);
+}
+
 const APP_NAME = "INSPIRE YOUTH";
 const APP_SUB  = "Inspire Management System (IMS)";
 const ORG_NAME = "Inspire Youth For Development";
@@ -18,19 +44,7 @@ const ACCOUNTABILITY_REFUND_PROOF_ACCEPT = ACCOUNTABILITY_RECEIPT_ACCEPT;
 const ACCOUNTABILITY_REFUND_PROOF_EXTENSIONS = [...ACCOUNTABILITY_RECEIPT_EXTENSIONS];
 
 // â"€â"€ Seed Data â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-const DEFAULT_USERS = [
-  { id:"u1", name:"Amara Osei",       email:"amara@etara.org",  role:"requester",          moduleRole:"staff",        jobTitle:"Program Officer",      dept:"Programs",       avatar:"AO", password:"pass",  supervisorId:"u2" },
-  { id:"u2", name:"David Kimani",     email:"david@etara.org",  role:"supervisor",         moduleRole:"finance",      jobTitle:"Program Manager",      dept:"Operations",     avatar:"DK", password:"pass",  supervisorId:"u6" },
-  { id:"u3", name:"Fatima Al-Hassan", email:"fatima@etara.org", role:"accountant",         moduleRole:"finance",      jobTitle:"Accountant",           dept:"Finance",        avatar:"FA", password:"pass",  supervisorId:"u2" },
-  { id:"u4", name:"James Odhiambo",   email:"james@etara.org",  role:"finance_manager",    moduleRole:"finance",      jobTitle:"Senior Accountant",    dept:"Finance",        avatar:"JO", password:"pass",  supervisorId:"u6" },
-  { id:"u5", name:"Admin User",       email:"admin@etara.org",  role:"admin",              moduleRole:"admin",        jobTitle:"System Administrator", dept:"Administration", avatar:"AU", password:"admin", supervisorId:"u2" },
-  { id:"u6", name:"Grace Nanyonjo",   email:"grace@etara.org",  role:"supervisor",         moduleRole:"finance",      jobTitle:"Program Manager",      dept:"Programs",       avatar:"GN", password:"pass",  supervisorId:"u2" },
-  { id:"u7", name:"Peter Akena",      email:"peter@etara.org",  role:"payment_accountant", moduleRole:"finance",      jobTitle:"Payment Officer",      dept:"Finance",        avatar:"PA", password:"pass",  supervisorId:"u2" },
-  { id:"u8", name:"Naomi Ssenfuka",   email:"naomi@etara.org",  role:"procurement_officer",moduleRole:"procurement",  jobTitle:"Procurement Officer",  dept:"Operations",     avatar:"NS", password:"pass",  supervisorId:"u2" },
-  { id:"u9", name:"Samuel Kagoda",    email:"samuel@etara.org", role:"executive_director", moduleRole:"admin",        jobTitle:"Executive Director",   dept:"Executive",      avatar:"SK", password:"pass",  supervisorId:"u2" },
-  { id:"u10", name:"HR Demo",         email:"hr@etara.org",     role:"requester",          moduleRole:"hr",           jobTitle:"HR Manager",           dept:"HR",             avatar:"HR", password:"hr",    supervisorId:"u2" },
-];
-let _users = [...DEFAULT_USERS];
+let _users = [];
 
 const DEFAULT_PROJECTS = [];
 let _projects = [...DEFAULT_PROJECTS];
@@ -566,7 +580,7 @@ function loadState() {
   if (!raw) return;
   try {
     const parsed = JSON.parse(raw);
-    _users = Array.isArray(parsed.users) ? parsed.users : [...DEFAULT_USERS];
+    _users = Array.isArray(parsed.users) ? parsed.users : [];
     _positions = Array.isArray(parsed.positions) ? parsed.positions : [...DEFAULT_POSITIONS];
     _deletedPositions = Array.isArray(parsed.deletedPositions) ? parsed.deletedPositions : [];
     _positionRoles = (parsed.positionRoles && typeof parsed.positionRoles === "object") ? { ...DEFAULT_POSITION_ROLES, ...parsed.positionRoles } : { ...DEFAULT_POSITION_ROLES };
@@ -598,7 +612,7 @@ function loadState() {
       eSignature: normalizeSignatureValue(user?.eSignature || null),
     }));
   } catch {
-    _users = [...DEFAULT_USERS];
+    _users = [];
     _positions = [...DEFAULT_POSITIONS];
     _deletedPositions = [];
     _positionRoles = { ...DEFAULT_POSITION_ROLES };
@@ -688,11 +702,6 @@ function getAdminManagedAccountabilityStatuses() {
 }
 
 function normalizeState() {
-  for (const seedUser of DEFAULT_USERS) {
-    const existing = _users.find(u => u.id === seedUser.id);
-    if (!existing) _users.push({ ...seedUser });
-  }
-
   _positionRoles = {
     ..._positionRoles,
     "System Administrator": "admin",
@@ -2976,26 +2985,39 @@ function LoginScreen({ onLogin }) {
   const [remember, setRemember] = useState(false);
   const [showPass, setShowPass] = useState(false);
 
-  const submit = () => {
-    const account = _users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!account) return setErr("Invalid credentials. Use demo accounts below.");
-    if (account.isActive === false) return setErr("This account has been deactivated by the administrator.");
-    if (account.lockedAt) return setErr("This account is locked. Please contact the administrator for an unlock or password reset.");
-    if (account.password !== pass) {
-      account.failedLoginAttempts = (account.failedLoginAttempts || 0) + 1;
-      if (account.failedLoginAttempts >= 5) {
-        account.lockedAt = ts();
-        saveState();
-        return setErr("Too many failed attempts. This account is now locked until an administrator unlocks it.");
-      }
-      saveState();
-      return setErr(`Invalid credentials. ${Math.max(5 - account.failedLoginAttempts, 0)} attempt(s) remaining before lockout.`);
-    }
-    account.failedLoginAttempts = 0;
-    account.lockedAt = null;
-    saveState();
+  const submit = async () => {
     setErr("");
-    onLogin(account);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pass,
+    });
+    if (error) return setErr("Invalid email or password.");
+    const { data: profile } = await supabase
+      .from("users")
+      .select("*")
+      .eq("auth_user_id", data.user.id)
+      .single();
+    if (!profile) {
+      await supabase.auth.signOut();
+      return setErr("Account not found. Contact your administrator.");
+    }
+    if (!profile.is_active) {
+      await supabase.auth.signOut();
+      return setErr("This account has been deactivated.");
+    }
+    onLogin({
+      id:          profile.id,
+      name:        profile.name,
+      email:       profile.email,
+      role:        profile.role,
+      moduleRole:  profile.module_role,
+      jobTitle:    profile.job_title,
+      dept:        profile.department,
+      avatar:      profile.avatar_initials,
+      supervisorId: profile.supervisor_id,
+      eSignature:  profile.e_signature,
+      isActive:    profile.is_active,
+    });
   };
 
   return (
@@ -3104,34 +3126,6 @@ function LoginScreen({ onLogin }) {
 
           <button className="login-btn" onClick={submit}>Sign In</button>
 
-          <div className="login-demo">
-            <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:10, fontSize:12 }}>Demo Accounts — click to fill</div>
-            {[
-              { email:"amara@etara.org",  password:"pass",  label:"Program Officer",       role:"Staff"        },
-              { email:"david@etara.org",  password:"pass",  label:"Program Manager",       role:"Finance"      },
-              { email:"fatima@etara.org", password:"pass",  label:"Accountant",            role:"Finance"      },
-              { email:"james@etara.org",  password:"pass",  label:"Senior Accountant",     role:"Finance"      },
-              { email:"peter@etara.org",  password:"pass",  label:"Payment Officer",       role:"Finance"      },
-              { email:"naomi@etara.org",  password:"pass",  label:"Procurement Officer",   role:"Procurement"  },
-              { email:"hr@etara.org",     password:"hr",    label:"HR Manager",            role:"HR"           },
-              { email:"samuel@etara.org", password:"pass",  label:"Executive Director",    role:"Admin"        },
-              { email:"admin@etara.org",  password:"admin", label:"System Administrator",  role:"Admin"        },
-            ].map(a => (
-              <div
-                key={a.email}
-                onClick={() => { setEmail(a.email); setPass(a.password); setErr(""); }}
-                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 10px", borderRadius:6, cursor:"pointer", marginBottom:4, border:"1px solid var(--g100)", background:"#fff", transition:"background .12s" }}
-                onMouseEnter={e => e.currentTarget.style.background="#f8fafc"}
-                onMouseLeave={e => e.currentTarget.style.background="#fff"}
-              >
-                <div>
-                  <div style={{ fontSize:12, fontWeight:600, color:"var(--navy)" }}>{a.label}</div>
-                  <div style={{ fontSize:11, color:"var(--g400)" }}>{a.email}</div>
-                </div>
-                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:10, background: a.role==="Admin"?"#7c3aed22": a.role==="HR"?"#0891b222": a.role==="Finance"?"#05966922": a.role==="Procurement"?"#d9770622":"#64748b22", color: a.role==="Admin"?"#7c3aed": a.role==="HR"?"#0891b2": a.role==="Finance"?"#059669": a.role==="Procurement"?"#d97706":"#64748b" }}>{a.role}</span>
-              </div>
-            ))}
-          </div>
 
           <div className="login-footer">© {new Date().getFullYear()} {ORG_NAME}. All rights reserved.</div>
         </div>
@@ -9475,6 +9469,19 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
         ...nextForm,
       };
       _users.push(u);
+      supabase.from("users").insert({
+        name:            u.name,
+        email:           u.email,
+        role:            u.role,
+        module_role:     u.moduleRole,
+        job_title:       u.jobTitle,
+        department:      u.dept,
+        avatar_initials: u.avatar,
+        is_active:       true,
+      }).then(({ error }) => {
+        if (error) console.warn("Could not save user to Supabase:", error.message);
+        else console.log("User saved to Supabase:", u.email);
+      });
       syncUsers();
       showToast(`User added: ${form.name}`);
     }
@@ -10914,6 +10921,7 @@ export default function App() {
     refresh();
   };
   const handleLogout = () => {
+    supabase.auth.signOut();
     pageHistoryRef.current = [];
     setUser(null);
     setPageState("home");
@@ -10921,7 +10929,30 @@ export default function App() {
 
   useEffect(() => {
     loadState();
-    refresh();
+    fetchUsersFromDB().then(() => {
+      refresh();
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) return;
+        supabase.from("users").select("*").eq("auth_user_id", session.user.id).single()
+          .then(({ data: profile }) => {
+            if (profile?.is_active) {
+              setUser({
+                id:          profile.id,
+                name:        profile.name,
+                email:       profile.email,
+                role:        profile.role,
+                moduleRole:  profile.module_role,
+                jobTitle:    profile.job_title,
+                dept:        profile.department,
+                avatar:      profile.avatar_initials,
+                supervisorId: profile.supervisor_id,
+                eSignature:  profile.e_signature,
+                isActive:    profile.is_active,
+              });
+            }
+          });
+      });
+    });
   }, [refresh]);
 
   useEffect(() => { if (user) refresh(); }, [user, refresh]);
