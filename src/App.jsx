@@ -31,6 +31,107 @@ async function fetchUsersFromDB() {
   console.log("Supabase users merged:", data.length);
 }
 
+async function fetchProjectsFromDB() {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*, project_activities(*)");
+  if (error) { console.warn("Supabase projects error:", error.message); return; }
+  if (!data?.length) return;
+  _projects = data.map(row => ({
+    id:          row.id,
+    name:        row.name,
+    donorName:   row.donor || "",
+    totalBudget: Number(row.total_budget) || 0,
+    createdAt:   row.created_at,
+    activities:  (row.project_activities || []).map(a => ({
+      id:           a.id,
+      name:         a.name,
+      code:         a.budget_line || "",
+      budgetAmount: Number(a.allocated_amount) || 0,
+    })),
+  }));
+  console.log("Supabase projects loaded:", _projects.length);
+}
+
+async function fetchRequestsFromDB() {
+  const { data, error } = await supabase
+    .from("requests")
+    .select("*, request_approvals(*)");
+  if (error) { console.warn("Supabase requests error:", error.message); return; }
+  if (!data?.length) return;
+  const userMap    = new Map(_users.map(u => [u.id, u]));
+  const projectMap = new Map(_projects.map(p => [p.id, p]));
+  data.forEach(row => {
+    const exists = _requests.find(r => r.id === row.id || r.id === row.request_number);
+    if (exists) return;
+    const requester = userMap.get(row.requester_id);
+    const project   = projectMap.get(row.project_id);
+    const activity  = project?.activities?.find(a => a.id === row.activity_id);
+    const extra     = row.supporting_docs || {};
+    _requests.push({
+      id:                  row.request_number || row.id,
+      title:               row.title || "",
+      description:         row.description || "",
+      department:          row.department || "",
+      amount:              Number(row.amount_requested) || 0,
+      status:              row.status,
+      createdAt:           row.submission_date || row.created_at,
+      projectId:           row.project_id || "",
+      projectName:         project?.name || "",
+      donorName:           project?.donorName || "",
+      activityId:          row.activity_id || "",
+      activityName:        activity?.name || "",
+      activityCode:        activity?.code || "",
+      activityBudget:      activity?.budgetAmount || 0,
+      requesterId:         row.requester_id || "",
+      requesterName:       requester?.name || "",
+      requesterRole:       requester?.role || "",
+      isVendorPayment:     row.request_type === "vendor_payment",
+      supervisorId:        extra.supervisorId || null,
+      supervisorName:      extra.supervisorName || "Unassigned",
+      lastRejectionReason: extra.lastRejectionReason || null,
+      approvals:           (row.request_approvals || []).map(a => ({
+        userId:   a.approver_id,
+        role:     a.stage,
+        decision: a.action,
+        note:     a.comment || "",
+        at:       a.acted_at,
+        stage:    a.stage,
+        name:     userMap.get(a.approver_id)?.name || "",
+      })),
+      ...extra,
+    });
+  });
+  console.log("Supabase requests loaded:", data.length);
+}
+
+async function fetchEmployeesFromDB() {
+  const { data, error } = await supabase.from("employees").select("*");
+  if (error) { console.warn("Supabase employees error:", error.message); return; }
+  if (!data?.length) return;
+  data.forEach(row => {
+    const exists = _employees.find(e => e.email?.toLowerCase() === row.email?.toLowerCase() || e.id === row.id);
+    if (!exists) {
+      _employees.push({
+        id:             row.id,
+        employeeId:     row.employee_id || "",
+        name:           `${row.first_name || ""} ${row.last_name || ""}`.trim(),
+        gender:         row.gender || "",
+        dob:            row.date_of_birth || "",
+        email:          row.email || "",
+        phone:          row.phone || "",
+        department:     row.department || "",
+        position:       row.position || "",
+        employmentType: row.employment_type || "Full-time",
+        status:         row.status || "Active",
+        dateJoined:     row.hire_date || "",
+        createdAt:      row.created_at || "",
+      });
+    }
+  });
+  console.log("Supabase employees merged:", data.length);
+}
+
 const APP_NAME = "INSPIRE YOUTH";
 const APP_SUB  = "Inspire Management System (IMS)";
 const ORG_NAME = "Inspire Youth For Development";
@@ -3286,13 +3387,28 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
     if (!form.name.trim() || !form.email.trim()) return;
     if (editEmp) {
       Object.assign(editEmp, { ...form, name: form.name.trim(), email: form.email.trim() });
+      const nameParts = form.name.trim().split(" ");
+      supabase.from("employees").update({
+        first_name:      nameParts[0] || "",
+        last_name:       nameParts.slice(1).join(" ") || "",
+        email:           form.email.trim(),
+        phone:           form.phone || null,
+        gender:          form.gender || null,
+        date_of_birth:   form.dob || null,
+        position:        form.position || null,
+        employment_type: form.employmentType || null,
+        status:          form.status || "Active",
+        hire_date:       form.dateJoined || null,
+      }).eq("id", editEmp.id).then(({ error }) => {
+        if (error) console.warn("Could not update employee in Supabase:", error.message);
+      });
       showToast(`Updated: ${form.name}`);
       sync();
       setShowForm(false);
       setEditEmp(null);
     } else {
       const newEmp = {
-        id: `emp-${Date.now()}`,
+        id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         ...form,
         name: form.name.trim(),
@@ -3300,6 +3416,24 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
         // employeeId already in form — pre-generated in makeBlankForm()
       };
       _employees.push(newEmp);
+      const nameParts = newEmp.name.split(" ");
+      supabase.from("employees").insert({
+        id:              newEmp.id,
+        employee_id:     newEmp.employeeId,
+        first_name:      nameParts[0] || "",
+        last_name:       nameParts.slice(1).join(" ") || "",
+        email:           newEmp.email,
+        phone:           newEmp.phone || null,
+        gender:          newEmp.gender || null,
+        date_of_birth:   newEmp.dob || null,
+        position:        newEmp.position || null,
+        employment_type: newEmp.employmentType || null,
+        status:          newEmp.status || "Active",
+        hire_date:       newEmp.dateJoined || null,
+      }).then(({ error }) => {
+        if (error) console.warn("Could not save employee to Supabase:", error.message);
+        else console.log("Employee saved to Supabase:", newEmp.name);
+      });
       showToast(`Added: ${form.name}`);
       sync();
       setShowForm(false);
@@ -9403,7 +9537,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
   const [dashboardDelegations, setDashboardDelegations] = useState([..._dashboardDelegations]);
   const [showForm, setShowForm] = useState(false);
   const [editUser, setEditUser] = useState(null);
-  const [form, setForm] = useState({ name:"", email:"", jobTitle:ROLE_LABELS.requester, dept:"Programs", password:"pass", supervisorId:"", moduleRole:"staff" });
+  const [form, setForm] = useState({ name:"", email:"", jobTitle:ROLE_LABELS.requester, dept:"Programs", password:"Staff@2024!", supervisorId:"", moduleRole:"staff" });
   const [newPosition, setNewPosition] = useState("");
   const [newPositionRole, setNewPositionRole] = useState("requester");
   const [newPositionDashboard, setNewPositionDashboard] = useState("");
@@ -9429,7 +9563,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
 
   const openAdd = () => {
     setEditUser(null);
-    setForm({ name:"", email:"", jobTitle:ROLE_LABELS.requester, dept:"Programs", password:"pass", supervisorId:users[0]?.id || "", moduleRole:"staff" });
+    setForm({ name:"", email:"", jobTitle:ROLE_LABELS.requester, dept:"Programs", password:"Staff@2024!", supervisorId:users[0]?.id || "", moduleRole:"staff" });
     setShowForm(true);
   };
   const openEdit = (u) => {
@@ -9438,7 +9572,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
     setShowForm(true);
   };
 
-  const saveUser = () => {
+  const saveUser = async () => {
     if (!form.name.trim() || !form.email.trim()) return;
     const fallbackSupervisorId = form.supervisorId || managers[0]?.id || null;
     const normalizedJobTitle = normalizePositionName(form.jobTitle) || "Team Member";
@@ -9459,31 +9593,35 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       syncUsers();
       showToast(`User updated: ${form.name}`);
     } else {
+      if (!form.password?.trim()) { showToast("Password is required"); return; }
+      const avatar = form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
       const u = {
-        id:`u${Date.now()}`,
-        avatar:form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2),
-        isActive:true,
-        failedLoginAttempts:0,
-        lockedAt:null,
-        lastPasswordResetAt:null,
+        id: crypto.randomUUID(),
+        avatar,
+        isActive: true,
+        failedLoginAttempts: 0,
+        lockedAt: null,
+        lastPasswordResetAt: null,
         ...nextForm,
       };
-      _users.push(u);
-      supabase.from("users").insert({
-        name:            u.name,
-        email:           u.email,
-        role:            u.role,
-        module_role:     u.moduleRole,
-        job_title:       u.jobTitle,
-        department:      u.dept,
-        avatar_initials: u.avatar,
-        is_active:       true,
-      }).then(({ error }) => {
-        if (error) console.warn("Could not save user to Supabase:", error.message);
-        else console.log("User saved to Supabase:", u.email);
+      const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+      const { data, error } = await supabase.functions.invoke("create-auth-user", {
+        body: { email: u.email, password: form.password.trim(), name: u.name, role: u.role, moduleRole: u.moduleRole, jobTitle: u.jobTitle, dept: u.dept, supervisorId: isUUID(u.supervisorId) ? u.supervisorId : null },
       });
+      if (error || data?.error) {
+        let msg = data?.error || error?.message || "Unknown error";
+        if (error?.context?.json) {
+          try { const body = await error.context.json(); msg = body?.error || msg; } catch {}
+        }
+        showToast(`Error: ${msg}`);
+        return;
+      }
+      _users.push(u);
+      setShowForm(false);
+      setEditUser(null);
       syncUsers();
-      showToast(`User added: ${form.name}`);
+      showToast(`User added: ${form.name} — they can now log in`);
+      return;
     }
     setShowForm(false);
     setEditUser(null);
@@ -10635,11 +10773,47 @@ export default function App() {
   }, [refresh]);
 
   // Centralised handlers â€" all state mutations flow through here
-  const handleApprove = useCallback((r) => { approveRequest(r, user); syncState(); }, [user, syncState]);
-  const handleReject  = useCallback((r, reason) => { rejectRequest(r, user, reason); syncState(); }, [user, syncState]);
+  const handleApprove = useCallback((r) => {
+    approveRequest(r, user);
+    syncState();
+    const newApproval = r.approvals[r.approvals.length - 1];
+    supabase.from("requests").update({ status: r.status }).eq("request_number", r.id).select("id").single()
+      .then(({ data, error }) => {
+        if (error) { console.warn("Could not update request status:", error.message); return; }
+        supabase.from("request_approvals").insert({
+          request_id:  data.id,
+          approver_id: newApproval.userId,
+          stage:       newApproval.stage,
+          action:      newApproval.decision,
+          comment:     newApproval.note || null,
+          acted_at:    newApproval.at,
+        }).then(({ error: e2 }) => { if (e2) console.warn("Could not save approval:", e2.message); });
+      });
+  }, [user, syncState]);
+  const handleReject  = useCallback((r, reason) => {
+    rejectRequest(r, user, reason);
+    syncState();
+    const newApproval = r.approvals[r.approvals.length - 1];
+    supabase.from("requests").update({ status: r.status, supporting_docs: { ...r.supporting_docs, lastRejectionReason: reason } }).eq("request_number", r.id).select("id").single()
+      .then(({ data, error }) => {
+        if (error) { console.warn("Could not update request status:", error.message); return; }
+        supabase.from("request_approvals").insert({
+          request_id:  data.id,
+          approver_id: newApproval.userId,
+          stage:       newApproval.stage,
+          action:      newApproval.decision,
+          comment:     newApproval.note || null,
+          acted_at:    newApproval.at,
+        }).then(({ error: e2 }) => { if (e2) console.warn("Could not save rejection:", e2.message); });
+      });
+  }, [user, syncState]);
   const handlePay     = useCallback((r, ref, date) => {
     const result = payRequest(r, user, ref, date);
-    if (result.ok) syncState();
+    if (result.ok) {
+      syncState();
+      supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
+        .then(({ error }) => { if (error) console.warn("Could not update payment status:", error.message); });
+    }
     return result;
   }, [user, syncState]);
   const handleSaveUserSignature = useCallback((signature) => {
@@ -10687,6 +10861,23 @@ export default function App() {
         lastRejectionReason: null,
       };
       _requests.push(req);
+      supabase.from("requests").insert({
+        id:               crypto.randomUUID(),
+        request_number:   id,
+        requester_id:     req.requesterId || null,
+        project_id:       req.projectId || null,
+        activity_id:      req.activityId || null,
+        department:       req.department,
+        title:            req.title,
+        description:      req.description,
+        amount_requested: req.amount,
+        request_type:     "vendor_payment",
+        status:           req.status,
+        submission_date:  new Date().toISOString().slice(0,10),
+        supporting_docs:  { supervisorId: req.supervisorId, supervisorName: req.supervisorName },
+      }).then(({ error }) => {
+        if (error) console.warn("Could not save request to Supabase:", error.message);
+      });
       addLog(id, procUser.id, `Vendor payment request created from procurement ${procRecord.id}`);
       if (supervisor) addNotif(supervisor.id, `Vendor payment approval needed: "${req.title}" from ${procUser.name} is awaiting your review.`, id);
       addNotif(procUser.id, `Vendor payment request ${id} created for ${vendor}. It is now in the finance approval queue.`, id);
@@ -10698,8 +10889,18 @@ export default function App() {
   }, [user, syncState]);
 
   const handleSubmitAccountability = useCallback((r, form) => { submitAccountability(r, user, form); syncState(); }, [user, syncState]);
-  const handleApproveAccountability = useCallback((r) => { approveAccountability(r, user); syncState(); }, [user, syncState]);
-  const handleRejectAccountability = useCallback((r, reason) => { rejectAccountability(r, user, reason); syncState(); }, [user, syncState]);
+  const handleApproveAccountability = useCallback((r) => {
+    approveAccountability(r, user);
+    syncState();
+    supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
+      .then(({ error }) => { if (error) console.warn("Could not update accountability status:", error.message); });
+  }, [user, syncState]);
+  const handleRejectAccountability = useCallback((r, reason) => {
+    rejectAccountability(r, user, reason);
+    syncState();
+    supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
+      .then(({ error }) => { if (error) console.warn("Could not update accountability status:", error.message); });
+  }, [user, syncState]);
   const handleSaveProject = useCallback((form, editProject=null) => {
     const normalized = {
       name: form.name.trim(),
@@ -10721,11 +10922,22 @@ export default function App() {
       syncState();
       return { ok:true, message:`${normalized.name} updated` };
     }
+    const newProjectId = crypto.randomUUID();
     _projects.push({
-      id: `proj-${Date.now()}`,
+      id: newProjectId,
       createdAt: ts(),
       activities: [],
       ...normalized,
+    });
+    supabase.from("projects").insert({
+      id:           newProjectId,
+      name:         normalized.name,
+      donor:        normalized.donorName,
+      total_budget: normalized.totalBudget || 0,
+      is_active:    true,
+    }).then(({ error }) => {
+      if (error) console.warn("Could not save project to Supabase:", error.message);
+      else console.log("Project saved to Supabase:", normalized.name);
     });
     syncState();
     return { ok:true, message:`${normalized.name} added` };
@@ -10779,9 +10991,20 @@ export default function App() {
       syncState();
       return { ok:true, message:`${normalized.name} updated` };
     }
+    const newActivityId = crypto.randomUUID();
     project.activities.push({
-      id: `${project.id}-act-${Date.now()}`,
+      id: newActivityId,
       ...normalized,
+    });
+    supabase.from("project_activities").insert({
+      id:               newActivityId,
+      project_id:       projectId,
+      name:             normalized.name,
+      budget_line:      normalized.code,
+      allocated_amount: normalized.budgetAmount || 0,
+    }).then(({ error }) => {
+      if (error) console.warn("Could not save activity to Supabase:", error.message);
+      else console.log("Activity saved to Supabase:", normalized.name);
     });
     syncState();
     return { ok:true, message:`${normalized.name} added` };
@@ -10840,6 +11063,23 @@ export default function App() {
         lastRejectionReason: null,
       };
       _requests.push(req);
+      supabase.from("requests").insert({
+        id:               crypto.randomUUID(),
+        request_number:   id,
+        requester_id:     req.requesterId || null,
+        project_id:       req.projectId || null,
+        activity_id:      req.activityId || null,
+        department:       req.department || null,
+        title:            req.title,
+        description:      req.description || null,
+        amount_requested: req.amount || 0,
+        request_type:     "advance",
+        status:           req.status,
+        submission_date:  new Date().toISOString().slice(0, 10),
+        supporting_docs:  { supervisorId: req.supervisorId, supervisorName: req.supervisorName },
+      }).then(({ error }) => {
+        if (error) console.warn("Could not save request to Supabase:", error.message);
+      });
       addLog(id, user.id, submit ? "Submitted for approval" : "Saved as draft");
       if (submit) {
         if (supervisor) addNotif(supervisor.id, `Approval needed: Finance request "${form.title}" from ${user.name} has been submitted and is awaiting your review.`, id);
@@ -10929,7 +11169,7 @@ export default function App() {
 
   useEffect(() => {
     loadState();
-    fetchUsersFromDB().then(() => {
+    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => {
       refresh();
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session) return;
