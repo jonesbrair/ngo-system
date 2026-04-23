@@ -25,6 +25,7 @@ async function fetchUsersFromDB() {
         supervisorId: row.supervisor_id,
         eSignature:   row.e_signature,
         isActive:     row.is_active ?? true,
+        authUserId:   row.auth_user_id || null,
       });
     }
   });
@@ -103,6 +104,39 @@ async function fetchRequestsFromDB() {
     });
   });
   console.log("Supabase requests loaded:", data.length);
+}
+
+async function fetchLeaveApplicationsFromDB() {
+  const { data, error } = await supabase.from("leave_applications").select("*");
+  if (error) { console.warn("Supabase leave error:", error.message); return; }
+  if (!data?.length) return;
+  data.forEach(row => {
+    const exists = _leaveApplications.find(a => a.id === row.id);
+    if (!exists) {
+      _leaveApplications.push({
+        id:               row.id,
+        employeeId:       row.employee_id || "",
+        employeeEmpId:    row.employee_emp_id || "",
+        employeeName:     row.employee_name || "",
+        employeeEmail:    row.employee_email || "",
+        userId:           row.user_id || "",
+        leaveTypeId:      row.leave_type_id || "annual",
+        startDate:        row.start_date || "",
+        endDate:          row.end_date || "",
+        numDays:          row.num_days || 0,
+        reason:           row.reason || "",
+        delegateTo:       row.delegate_to || "",
+        handoverReport:   row.handover_report || "",
+        status:           row.status || "pending_supervisor",
+        supervisorId:     row.supervisor_id || null,
+        approvals:        Array.isArray(row.approvals) ? row.approvals : [],
+        appliedAt:        row.applied_at || row.created_at || "",
+        approvedAt:       row.approved_at || null,
+        rejectedAt:       row.rejected_at || null,
+      });
+    }
+  });
+  console.log("Supabase leave applications merged:", data.length);
 }
 
 async function fetchEmployeesFromDB() {
@@ -2348,8 +2382,15 @@ html,body{height:100%;font-family:var(--sans);background:var(--off);color:var(--
 .sidebar-footer{margin-top:auto;padding:14px;position:relative;z-index:1}
 .user-chip{display:flex;align-items:center;gap:10px;padding:12px 13px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-radius:22px;transition:all .18s ease;backdrop-filter:blur(10px)}
 .user-chip:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.12)}
+.user-chip-copy{flex:1;min-width:0}
 .u-name{color:#fff;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .u-role{color:rgba(226,232,240,.68);font-size:11px}
+.sidebar-logout-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);color:#fff;cursor:pointer;flex-shrink:0;box-shadow:0 10px 22px rgba(7,16,31,.18);transition:transform .18s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease}
+.sidebar-logout-btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.24);box-shadow:0 14px 26px rgba(7,16,31,.22)}
+.sidebar-logout-btn .app-ui-icon-badge{width:24px !important;height:24px !important;border-radius:10px;box-shadow:0 6px 12px var(--icon-shadow,rgba(15,39,68,.16))}
+.sidebar-logout-btn .app-ui-icon-badge::after{border-radius:9px}
+.sidebar-logout-btn .app-ui-icon-gloss{border-radius:8px}
+.sidebar-logout-label{font-size:12px;font-weight:700;line-height:1}
 .main{margin-left:var(--sw);flex:1;display:flex;flex-direction:column;min-height:100vh}
 .topbar{height:var(--th);background:#fff;border-bottom:1px solid var(--g200);display:flex;align-items:center;padding:0 28px;gap:16px;position:sticky;top:0;z-index:50;box-shadow:0 1px 0 var(--g100)}
 .topbar-title{font-family:var(--serif);font-size:21px;color:var(--navy);flex:1}
@@ -2358,7 +2399,7 @@ html,body{height:100%;font-family:var(--sans);background:var(--off);color:var(--
 .topbar-back-btn:hover{transform:translateY(-1px);box-shadow:var(--sh)}
 .topbar-back-btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
 .topbar-actions{display:flex;align-items:center;gap:10px}
-.notif-btn{width:38px;height:38px;border-radius:50%;background:var(--g100);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:background .14s;font-size:16px}
+.notif-btn{width:44px;height:44px;border-radius:50%;background:var(--g100);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:background .14s;font-size:16px}
 .notif-btn:hover{background:var(--g200)}
 .notif-dot{position:absolute;top:7px;right:7px;width:8px;height:8px;background:var(--red);border-radius:50%;border:2px solid #fff}
 .page{padding:28px;flex:1}
@@ -2588,7 +2629,7 @@ textarea{resize:vertical;min-height:88px}
 .login-left-appname{font-family:'Roboto',system-ui,sans-serif;font-size:22px;font-weight:800;line-height:1.2;margin-bottom:6px;letter-spacing:.03em;text-transform:uppercase}
 .login-left-erp{font-family:'Roboto',system-ui,sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,.75);letter-spacing:.04em;margin-bottom:28px}
 .login-left-vision-label{font-family:'Roboto',system-ui,sans-serif;font-size:17px;font-weight:700;color:#fff;margin-bottom:10px;letter-spacing:.01em}
-.login-left-tagline{font-family:'Roboto',system-ui,sans-serif;font-size:14px;font-weight:300;color:rgba(255,255,255,.78);line-height:1.75;max-width:340px;font-style:italic}
+.login-left-tagline{font-family:'Roboto',system-ui,sans-serif;font-size:14px;font-weight:300;color:rgba(255,255,255,.78);line-height:1.75;max-width:340px}
 .login-left-dots{display:flex;gap:8px;margin-top:48px}
 .login-left-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.28)}
 .login-left-dot.active{background:#f59e0b;width:26px;border-radius:4px}
@@ -2615,6 +2656,7 @@ textarea{resize:vertical;min-height:88px}
 .login-demo strong{color:var(--navy)}
 .login-footer{text-align:center;margin-top:24px;font-size:11.5px;color:var(--g400)}
 @media(max-width:820px){.login-left{display:none}.login-right{width:100%;padding:32px 24px}.login-card{max-width:420px}}
+@media(max-width:400px){.page{padding:12px 8px}.card-body{padding:12px}}
 
 /* â"€â"€ Timeline â"€â"€ */
 .timeline{display:flex;flex-direction:column}
@@ -2642,6 +2684,7 @@ textarea{resize:vertical;min-height:88px}
 
 /* â"€â"€ Filters â"€â"€ */
 .filters{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+.filters input.f-input{flex:1 1 180px;min-width:0;max-width:280px}
 .f-input{padding:8px 13px;border:1.5px solid var(--g200);border-radius:var(--r-sm);font-size:13px;color:var(--g700);outline:none;background:#fff}
 .f-input:focus{border-color:var(--navy-light)}
 .chip{padding:6px 13px;border-radius:20px;border:1.5px solid var(--g200);font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:var(--g600);transition:all .12s}
@@ -2804,7 +2847,24 @@ textarea{resize:vertical;min-height:88px}
   .accountability-budget-table td[data-label]::before{content:attr(data-label);display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--g500);margin-bottom:6px}
 }
 
+.hamburger-btn{display:none;background:none;border:none;cursor:pointer;padding:0;width:44px;height:44px;align-items:center;justify-content:center;border-radius:var(--r-sm);color:var(--g700);flex-shrink:0}
+.hamburger-btn:hover{background:var(--g100)}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99}
+
+@media(max-width:900px){
+  .hamburger-btn{display:flex}
+  .sidebar-overlay{display:block}
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .page{padding:20px 16px}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .sig-canvas{height:160px}
+}
+
 @media(max-width:768px){
+  .hamburger-btn{display:flex}
+  .sidebar-overlay{display:block}
   .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)}
   .main{margin-left:0}
@@ -2812,6 +2872,14 @@ textarea{resize:vertical;min-height:88px}
   .stats-grid{grid-template-columns:1fr 1fr}
   .new-request-card .card-body{padding:16px}
   .new-request-form .form-section{padding:16px}
+  .btn{min-height:44px;padding:11px 18px}
+  .btn-sm{min-height:44px;padding:10px 13px}
+  .btn-lg{min-height:44px}
+  .nav-item{min-height:44px;padding:12px 14px}
+  .topbar-back-btn{min-height:44px;padding:10px 12px}
+  .page{padding:16px 12px}
+  .page-header{margin-bottom:16px}
+  .card-body{padding:16px}
 }
 `;
 
@@ -2981,8 +3049,8 @@ function SignaturePad({ value, onChange }) {
   useEffect(() => {
     if (mode === "drawn" && canvasRef.current) {
       const canvas = canvasRef.current;
-      canvas.width  = canvas.offsetWidth * window.devicePixelRatio;
-      canvas.height = 110 * window.devicePixelRatio;
+      canvas.width  = canvas.offsetWidth  * window.devicePixelRatio;
+      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
       const c = canvas.getContext("2d");
       c.scale(window.devicePixelRatio, window.devicePixelRatio);
       c.strokeStyle = "#0f2744";
@@ -2992,7 +3060,7 @@ function SignaturePad({ value, onChange }) {
       ctx.current   = c;
       if (value?.type === "drawn" && value.value) {
         const img = new Image();
-        img.onload = () => c.drawImage(img, 0, 0, canvas.offsetWidth, 110);
+        img.onload = () => c.drawImage(img, 0, 0, canvas.offsetWidth, canvas.offsetHeight);
         img.src    = value.value;
       }
     }
@@ -3006,7 +3074,7 @@ function SignaturePad({ value, onChange }) {
   const onStart = (e) => { e.preventDefault(); drawing.current = true; const [x,y] = getXY(e); ctx.current.beginPath(); ctx.current.moveTo(x,y); };
   const onMove  = (e) => { e.preventDefault(); if (!drawing.current) return; const [x,y] = getXY(e); ctx.current.lineTo(x,y); ctx.current.stroke(); };
   const onEnd   = () => { if (!drawing.current) return; drawing.current = false; onChange({ type:"drawn", value: canvasRef.current.toDataURL() }); };
-  const clear   = () => { ctx.current.clearRect(0, 0, canvasRef.current.offsetWidth, 110); onChange(null); };
+  const clear   = () => { ctx.current.clearRect(0, 0, canvasRef.current.offsetWidth, canvasRef.current.offsetHeight); onChange(null); };
 
   return (
     <div className="sig-pad-wrap">
@@ -3026,7 +3094,6 @@ function SignaturePad({ value, onChange }) {
           <canvas
             ref={canvasRef}
             className="sig-canvas"
-            style={{ height: 110 }}
             onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
             onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}
           />
@@ -3132,7 +3199,7 @@ function LoginScreen({ onLogin }) {
             <img src={inspireLogo} alt="Inspire Youth For Development logo" />
           </div>
           <div className="login-left-appname">INSPIRE YOUTH FOR DEVELOPMENT (IYD)</div>
-          <div className="login-left-erp">Enterprise Resource Planning (ERP)</div>
+          <div className="login-left-erp">Inspire Management System (IMS)</div>
           <div className="login-left-vision-label">Vision</div>
           <div className="login-left-tagline">
             A world where all young people and women have been empowered and equipped to realize their potential.
@@ -3923,7 +3990,7 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
       {toast && <div className="alert alert-green" style={{ marginBottom:14 }}>{toast}</div>}
 
       <div className="filters" style={{ marginBottom:16 }}>
-        <input className="f-input" placeholder="Search name, email, position…" value={search} onChange={e=>setSearch(e.target.value)} style={{ width:240 }} />
+        <input className="f-input" placeholder="Search name, email, position…" value={search} onChange={e=>setSearch(e.target.value)} />
         <select className="f-input" value={deptFilter} onChange={e=>setDeptFilter(e.target.value)}>
           <option value="all">All Departments</option>
           {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -4886,7 +4953,7 @@ function LeaveApplicationPage({ user, setPage }) {
     if (isOver)                              return setErr(`Insufficient ${selLT.name} balance — ${balance} day${balance !== 1 ? "s" : ""} remaining.`);
     if (!form.reason.trim())                 return setErr("Please provide a reason for this leave request.");
     const id = `LV-${String(_nextLeaveId++).padStart(4, "0")}`;
-    _leaveApplications.push({
+    const newApp = {
       id, employeeId:empId, employeeEmpId:empRecord?.employeeId||"",
       employeeName:user.name, employeeEmail:user.email, userId:user.id,
       leaveTypeId:form.leaveTypeId, startDate:form.startDate, endDate:form.endDate,
@@ -4895,7 +4962,26 @@ function LeaveApplicationPage({ user, setPage }) {
       status:"pending_supervisor", appliedAt:new Date().toISOString(),
       supervisorId:supervisorUser?.id || null, approvals:[],
       approvedAt:null, rejectedAt:null,
-    });
+    };
+    _leaveApplications.push(newApp);
+    supabase.from("leave_applications").insert({
+      id:               newApp.id,
+      employee_id:      newApp.employeeId || null,
+      employee_emp_id:  newApp.employeeEmpId || null,
+      employee_name:    newApp.employeeName,
+      employee_email:   newApp.employeeEmail,
+      user_id:          newApp.userId || null,
+      leave_type_id:    newApp.leaveTypeId,
+      start_date:       newApp.startDate,
+      end_date:         newApp.endDate,
+      num_days:         newApp.numDays,
+      reason:           newApp.reason || null,
+      delegate_to:      newApp.delegateTo || null,
+      handover_report:  newApp.handoverReport || null,
+      status:           newApp.status,
+      supervisor_id:    newApp.supervisorId || null,
+      approvals:        [],
+    }).then(({ error }) => { if (error) console.warn("Leave insert error:", error.message); });
     if (supervisorUser) {
       addNotif(supervisorUser.id, `Leave approval needed: ${id} from ${user.name} has been submitted and is awaiting your review.`, id);
     }
@@ -5150,18 +5236,13 @@ function HRLeaveManagement({ user, setPage }) {
     if (app.status === "pending_supervisor") {
       app.approvals = [...(app.approvals||[]), { ...action, role:"supervisor" }];
       app.status = "pending_hr";
-      _users
-        .filter(u => {
-          const role = getModuleRole(u);
-          return role === "hr" || role === "admin";
-        })
+      _users.filter(u => { const r = getModuleRole(u); return r === "hr" || r === "admin"; })
         .forEach(u => addNotif(u.id, `HR review needed: Leave request ${app.id} from ${app.employeeName} has been approved by the supervisor and is awaiting HR review.`, app.id));
       showToast(`${app.id} forwarded to HR for review.`);
     } else if (app.status === "pending_hr") {
       app.approvals = [...(app.approvals||[]), { ...action, role:"hr" }];
       app.status    = "pending_executive_director";
-      _users
-        .filter(u => u.role === "executive_director")
+      _users.filter(u => u.role === "executive_director")
         .forEach(u => addNotif(u.id, `Executive approval needed: Leave request ${app.id} from ${app.employeeName} is awaiting your final approval.`, app.id));
       showToast(`${app.id} forwarded to the Executive Director for final approval.`);
     } else if (app.status === "pending_executive_director") {
@@ -5172,14 +5253,15 @@ function HRLeaveManagement({ user, setPage }) {
       if (lt?.days) deductLeaveBalance(app.employeeId, app.leaveTypeId, app.numDays);
       fileApprovedLeaveIntoStaffRecord(app, user.name);
       addNotif(app.userId, `Leave approved: ${app.id} has been fully approved and filed in your staff record.`, app.id);
-      _users
-        .filter(u => {
-          const role = getModuleRole(u);
-          return role === "hr" || role === "admin";
-        })
+      _users.filter(u => { const r = getModuleRole(u); return r === "hr" || r === "admin"; })
         .forEach(u => addNotif(u.id, `Leave approved: ${app.id} for ${app.employeeName} has been finally approved and filed in the staff record.`, app.id));
-      showToast(`${app.id} approved by the Executive Director and filed in ${app.employeeName}'s staff record.`);
+      showToast(`${app.id} approved and filed in ${app.employeeName}'s staff record.`);
     }
+    supabase.from("leave_applications").update({
+      status:      app.status,
+      approvals:   app.approvals,
+      approved_at: app.approvedAt || null,
+    }).eq("id", app.id).then(({ error }) => { if (error) console.warn("Leave approve sync error:", error.message); });
     sync();
   };
 
@@ -5191,6 +5273,11 @@ function HRLeaveManagement({ user, setPage }) {
     target.approvals = [...(target.approvals||[]), { userId:user.id, name:user.name, at:new Date().toISOString(), decision:"rejected", note:rejectNote, role }];
     target.status    = "rejected";
     target.rejectedAt = new Date().toISOString();
+    supabase.from("leave_applications").update({
+      status:      "rejected",
+      approvals:   target.approvals,
+      rejected_at: target.rejectedAt,
+    }).eq("id", target.id).then(({ error }) => { if (error) console.warn("Leave reject sync error:", error.message); });
     showToast(`${target.id} rejected.`);
     setRejectTarget(null); setRejectNote(""); sync();
   };
@@ -5239,7 +5326,7 @@ function HRLeaveManagement({ user, setPage }) {
 
       {/* Filters */}
       <div className="filters" style={{ marginBottom:16 }}>
-        <input className="f-input" placeholder="Search employee, ref, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ width:230 }} />
+        <input className="f-input" placeholder="Search employee, ref, ID…" value={search} onChange={e => setSearch(e.target.value)} />
         <select className="f-input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
           <option value="all">All Statuses</option>
           <option value="pending_supervisor">Pending Supervisor</option>
@@ -5402,7 +5489,7 @@ function HRPositionManager({ onSystemChange }) {
       {toast && <div className="alert alert-green" style={{ marginBottom:14 }}>{toast}</div>}
 
       <div className="filters" style={{ marginBottom:16 }}>
-        <input className="f-input" placeholder="Search positions…" value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }} />
+        <input className="f-input" placeholder="Search positions…" value={search} onChange={e=>setSearch(e.target.value)} />
         <select className="f-input" value={deptFilter} onChange={e=>setDeptFilter(e.target.value)}>
           <option value="all">All Departments</option>
           {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -5531,7 +5618,7 @@ function MyESignaturePage({ user, onSaveSignature }) {
   );
 }
 
-function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, onLogout }) {
+function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, onLogout, isOpen, onClose }) {
   const isApprover = ["supervisor","accountant","finance_manager","executive_director","payment_accountant"].includes(user.role);
   const isAdmin = user.role === "admin";
   const mr = getModuleRole(user);
@@ -5551,7 +5638,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
   const inMessages = messagePages.has(page);
   const isHome = page === "home";
   const N = (icon, label, id, badge=null, isActive=page===id, targetPage=id) => (
-    <div key={id} className={`nav-item ${isActive?"active":""}`} onClick={() => setPage(targetPage)}>
+    <div key={id} className={`nav-item ${isActive?"active":""}`} onClick={() => { setPage(targetPage); onClose(); }}>
       <span className="nav-icon">
         <IconBadge name={icon} tone={NAV_ICON_TONES[targetPage] || NAV_ICON_TONES[id] || "navy"} size={15} />
       </span>
@@ -5560,7 +5647,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
     </div>
   );
   return (
-    <div className="sidebar">
+    <div className={`sidebar${isOpen ? " open" : ""}`}>
       <div className="sidebar-logo">
         <div className="logo-mark">
           <img src={inspireLogo} alt="Inspire Youth For Development logo" />
@@ -5680,14 +5767,17 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
       <div className="sidebar-footer">
         <div className="user-chip">
           <Avatar str={user.avatar} />
-          <div style={{ flex:1, minWidth:0 }}>
+          <div className="user-chip-copy">
             <div className="u-name">{user.name}</div>
             <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:2 }}>
               <div style={{ width:6, height:6, borderRadius:"50%", background:MODULE_ROLE_COLORS[getModuleRole(user)] || "#64748b", flexShrink:0 }} />
               <div className="u-role">{MODULE_ROLE_LABELS[getModuleRole(user)] || "Staff"}</div>
             </div>
           </div>
-          <span style={{ color:"rgba(255,255,255,.35)", fontSize:18, cursor:"pointer", flexShrink:0 }} onClick={onLogout} title="Log out">Log out</span>
+          <button type="button" className="sidebar-logout-btn" onClick={onLogout} title="Log out" aria-label="Log out">
+            <AppButtonIcon name="back" tone="slate" size={12} />
+            <span className="sidebar-logout-label">Log out</span>
+          </button>
         </div>
       </div>
     </div>
@@ -5788,7 +5878,7 @@ function SystemHome({ setPage, user }) {
     <div className="page">
       <div className="page-header">
         <div className="page-title">Home</div>
-        <div className="page-sub">Choose a system area to continue. Existing finance workflows remain exactly as they are inside Finance.</div>
+        <div className="page-sub">Choose a system area to continue.</div>
       </div>
 
       {visibleAnnouncements.length > 0 && (
@@ -6997,7 +7087,7 @@ function ActivityPlansDashboard() { return null; }
       </div>
 
       <div className="filters">
-        <input className="f-input" placeholder="Search plans..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }} />
+        <input className="f-input" placeholder="Search plans..." value={search} onChange={e=>setSearch(e.target.value)} />
         <select className="f-input" value={projectFilter} onChange={e=>setProjectFilter(e.target.value)}>
           <option value="all">All Projects</option>
           {projectOptions.map(project => <option key={project} value={project}>{project}</option>)}
@@ -8932,7 +9022,7 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
       </div>
 
       <div className="filters">
-        <input className="f-input" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:220 }} />
+        <input className="f-input" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
         <select className="f-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)}>
           <option value="all">All Departments</option>
           {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -9542,6 +9632,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
   const [newPositionRole, setNewPositionRole] = useState("requester");
   const [newPositionDashboard, setNewPositionDashboard] = useState("");
   const [delegationForm, setDelegationForm] = useState({ dashboard:"", ownerUserId:"", delegateUserId:"", startsOn:"", endsOn:"", reason:"" });
+  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -9592,16 +9683,17 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       Object.assign(editUser, nextForm);
       syncUsers();
       showToast(`User updated: ${form.name}`);
-    } else {
-      if (!form.password?.trim()) { showToast("Password is required"); return; }
+      setShowForm(false);
+      setEditUser(null);
+      return;
+    }
+    if (!form.password?.trim()) { showToast("Password is required"); return; }
+    setSaving(true);
+    try {
       const avatar = form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
       const u = {
-        id: crypto.randomUUID(),
-        avatar,
-        isActive: true,
-        failedLoginAttempts: 0,
-        lockedAt: null,
-        lastPasswordResetAt: null,
+        id: crypto.randomUUID(), avatar, isActive: true,
+        failedLoginAttempts: 0, lockedAt: null, lastPasswordResetAt: null,
         ...nextForm,
       };
       const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -9621,10 +9713,9 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       setEditUser(null);
       syncUsers();
       showToast(`User added: ${form.name} — they can now log in`);
-      return;
+    } finally {
+      setSaving(false);
     }
-    setShowForm(false);
-    setEditUser(null);
   };
 
   const savePosition = () => {
@@ -9705,19 +9796,39 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
     showToast("Delegation revoked.");
   };
 
-  const resetPW = (u) => {
-    u.password = "pass123";
-    u.failedLoginAttempts = 0;
-    u.lockedAt = null;
-    u.lastPasswordResetAt = ts();
-    syncUsers();
-    showToast(`Password reset for ${u.name}. Temporary password: pass123`);
+  const resetPW = async (u) => {
+    const tempPassword = "Staff@2024!";
+    showToast(`Looking up account for ${u.name}…`);
+    try {
+      let authId = u.authUserId;
+      if (!authId) {
+        const { data: row } = await supabase
+          .from("users").select("auth_user_id").eq("email", u.email).maybeSingle();
+        authId = row?.auth_user_id;
+      }
+      if (!authId) {
+        showToast(`No auth account linked for ${u.name}. Refresh the page and try again.`);
+        return;
+      }
+      showToast(`Resetting password for ${u.name}…`);
+      const { error } = await supabase.functions.invoke("reset-user-password", {
+        body: { targetAuthUserId: authId, newPassword: tempPassword },
+      });
+      if (error) { showToast(`Reset failed: ${error.message}`); return; }
+      u.failedLoginAttempts = 0;
+      u.lockedAt = null;
+      u.lastPasswordResetAt = ts();
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, failedLoginAttempts:0, lockedAt:null, lastPasswordResetAt:u.lastPasswordResetAt } : x));
+      showToast(`Done — ${u.name}'s password reset to: ${tempPassword}`);
+    } catch (e) {
+      showToast(`Reset error: ${e.message || String(e)}`);
+    }
   };
 
   const unlockUser = (u) => {
     u.failedLoginAttempts = 0;
     u.lockedAt = null;
-    syncUsers();
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, failedLoginAttempts:0, lockedAt:null } : x));
     showToast(`${u.name} has been unlocked.`);
   };
 
@@ -9726,17 +9837,25 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       showToast("You cannot deactivate your own account while signed in.");
       return;
     }
-    u.isActive = u.isActive === false;
-    if (u.isActive) {
-      u.failedLoginAttempts = 0;
-      u.lockedAt = null;
-      showToast(`${u.name} reactivated.`);
-    } else {
-      u.failedLoginAttempts = 0;
-      u.lockedAt = null;
-      showToast(`${u.name} deactivated.`);
+    const newActive = u.isActive === false; // toggle: false→true, true/undefined→false
+    u.isActive = newActive;
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, isActive: newActive } : x));
+    supabase.from("users").update({ is_active: newActive }).eq("email", u.email)
+      .then(({ error }) => { if (error) console.warn("Could not sync active status:", error.message); });
+    showToast(`${u.name} ${newActive ? "reactivated" : "deactivated"}.`);
+  };
+
+  const deleteUser = (u) => {
+    if (u.id === currentUserId) {
+      showToast("You cannot delete your own account.");
+      return;
     }
+    if (!window.confirm(`Delete "${u.name}" (${u.email})?\n\nThis removes their system profile. Their login credentials will remain in auth until cleared separately.`)) return;
+    _users = _users.filter(x => x.id !== u.id);
+    supabase.from("users").delete().eq("id", u.id)
+      .then(({ error }) => { if (error) console.warn("Could not delete user from DB:", error.message); });
     syncUsers();
+    showToast(`${u.name} removed from the system.`);
   };
 
   const filtered = users
@@ -10064,7 +10183,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
             <div className="page-sub" style={{ marginTop:4 }}>Browse users by position and access role, then open account actions from one table.</div>
           </div>
           <div className="filters" style={{ marginBottom:0 }}>
-            <input className="f-input" placeholder="Search users..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }} />
+            <input className="f-input" placeholder="Search users..." value={search} onChange={e=>setSearch(e.target.value)} />
             <select className="f-input" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}>
               <option value="all">All Module Roles</option>
               {MODULE_ROLES.map(r => <option key={r} value={`mr:${r}`}>{MODULE_ROLE_LABELS[r]}</option>)}
@@ -10112,8 +10231,13 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
                       <div className="flex gap-2" style={{ flexWrap:"wrap" }}>
                         <button className="btn btn-ghost btn-sm" onClick={()=>openEdit(u)}>Edit</button>
                         <button className="btn btn-ghost btn-sm" onClick={()=>resetPW(u)}>Reset PW</button>
-                        {isLocked && <button className="btn btn-ghost btn-sm" onClick={()=>unlockUser(u)}>Unlock</button>}
-                        <button className="btn btn-ghost btn-sm" onClick={()=>toggleActive(u)}>{isInactive ? "Reactivate" : "Deactivate"}</button>
+                        {isLocked && <button className="btn btn-ghost btn-sm" style={{ color:"var(--amber,#d97706)" }} onClick={()=>unlockUser(u)}>Unlock</button>}
+                        <button className="btn btn-ghost btn-sm" style={{ color: isInactive ? "#059669" : "#d97706" }} onClick={()=>toggleActive(u)}>
+                          {isInactive ? "Reactivate" : "Deactivate"}
+                        </button>
+                        {u.id !== currentUserId && (
+                          <button className="btn btn-ghost btn-sm" style={{ color:"#dc2626" }} onClick={()=>deleteUser(u)}>Delete</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -10160,11 +10284,13 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       )}
 
       {showForm && (
-        <Modal title={editUser ? "Edit User" : "Add New User"} onClose={()=>{setShowForm(false);setEditUser(null);}}
+        <Modal title={editUser ? "Edit User" : "Add New User"} onClose={()=>{ if (!saving) { setShowForm(false); setEditUser(null); } }}
           footer={
             <>
-              <button className="btn btn-ghost" onClick={()=>{setShowForm(false);setEditUser(null);}}>Cancel</button>
-              <button className="btn btn-amber" onClick={saveUser}>Save User</button>
+              <button className="btn btn-ghost" disabled={saving} onClick={()=>{setShowForm(false);setEditUser(null);}}>Cancel</button>
+              <button className="btn btn-amber" disabled={saving} onClick={saveUser}>
+                {saving ? "Creating account…" : "Save User"}
+              </button>
             </>
           }>
           <div className="form-grid">
@@ -10328,7 +10454,7 @@ function BudgetManagement({ projects, requests, onSaveProject, onDeleteProject, 
       </div>
 
       <div className="filters" style={{ marginBottom:16 }}>
-        <input className="f-input" placeholder="Search projects or activities..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:260 }} />
+        <input className="f-input" placeholder="Search projects or activities..." value={search} onChange={e=>setSearch(e.target.value)} />
       </div>
 
       {toast && <div className={`alert alert-${toast.tone}`}>{toast.message}</div>}
@@ -10693,7 +10819,7 @@ function ActivityLogs() {
         </div>
       </div>
       <div className="filters" style={{ marginBottom:16 }}>
-        <input className="f-input" placeholder="Filter events..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:260 }} />
+        <input className="f-input" placeholder="Filter events..." value={search} onChange={e=>setSearch(e.target.value)} />
       </div>
       <div className="card">
         {filtered.length===0 ? (
@@ -10733,10 +10859,12 @@ function ActivityLogs() {
 
 // â"€â"€ Main App â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 export default function App() {
-  const [user,     setUser]     = useState(null);
-  const [page,     setPageState] = useState("home");
-  const [projects, setProjects] = useState([]);
-  const [requests, setRequests] = useState([]);
+  const [user,        setUser]        = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [page,        setPageState]   = useState("home");
+  const [projects,    setProjects]    = useState([]);
+  const [requests,    setRequests]    = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const pageHistoryRef = useRef([]);
 
   const setPage = useCallback((nextPage, options={}) => {
@@ -11160,8 +11288,8 @@ export default function App() {
     setPageState("home");
     refresh();
   };
-  const handleLogout = () => {
-    supabase.auth.signOut();
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     pageHistoryRef.current = [];
     setUser(null);
     setPageState("home");
@@ -11169,10 +11297,10 @@ export default function App() {
 
   useEffect(() => {
     loadState();
-    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => {
+    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => {
       refresh();
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (!session) return;
+        if (!session) { setAuthChecked(true); return; }
         supabase.from("users").select("*").eq("auth_user_id", session.user.id).single()
           .then(({ data: profile }) => {
             if (profile?.is_active) {
@@ -11190,6 +11318,7 @@ export default function App() {
                 isActive:    profile.is_active,
               });
             }
+            setAuthChecked(true);
           });
       });
     });
@@ -11224,6 +11353,15 @@ export default function App() {
   const notifCount   = _notifications.filter(n=>n.userId===user?.id&&!n.read).length;
   const messageUnreadCount = getUnreadMessagesCountForUser(user);
   const canGoBack = pageHistoryRef.current.length > 0;
+
+  if (!authChecked) return (
+    <>
+      <style>{CSS}</style>
+      <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#0a1e3d" }}>
+        <div style={{ color:"rgba(255,255,255,.6)", fontSize:14, fontFamily:"system-ui,sans-serif" }}>Loading…</div>
+      </div>
+    </>
+  );
 
   if (!user) return (
     <>
@@ -11428,10 +11566,16 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div className="layout">
-        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} onLogout={handleLogout} />
+        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <div className="main">
           <div className="topbar">
             <div className="topbar-title-wrap">
+              <button className="hamburger-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                </svg>
+              </button>
               <button className="topbar-back-btn" onClick={goBack} disabled={!canGoBack} title={canGoBack ? "Go back to previous page" : "No previous page"}>
                 <AppButtonIcon name="back" tone="blue" size={13} />
                 <span>Back</span>
