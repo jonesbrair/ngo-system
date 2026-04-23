@@ -3237,7 +3237,7 @@ function LoginScreen({ onLogin }) {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="you@etara.org"
+                placeholder="admin@inspireyouthdev.org"
                 onKeyDown={e => e.key === "Enter" && submit()}
                 autoFocus
               />
@@ -11356,9 +11356,57 @@ export default function App() {
 
   if (!authChecked) return (
     <>
-      <style>{CSS}</style>
-      <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#0a1e3d" }}>
-        <div style={{ color:"rgba(255,255,255,.6)", fontSize:14, fontFamily:"system-ui,sans-serif" }}>Loading…</div>
+      <style>{CSS}{`
+        @keyframes ims-pulse {
+          0%,100% { opacity:.35; transform:scale(1); }
+          50%      { opacity:1;   transform:scale(1.06); }
+        }
+        @keyframes ims-dots {
+          0%,80%,100% { opacity:.2; transform:translateY(0); }
+          40%         { opacity:1;  transform:translateY(-4px); }
+        }
+        .ims-splash-logo {
+          width:110px; height:110px;
+          background:#fff; border-radius:26px;
+          display:flex; align-items:center; justify-content:center;
+          padding:14px;
+          box-shadow:0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.08);
+          animation:ims-pulse 2.4s ease-in-out infinite;
+          margin-bottom:28px;
+        }
+        .ims-splash-logo img { width:100%; height:100%; object-fit:contain; }
+        .ims-splash-name {
+          font-family:'Roboto',system-ui,sans-serif;
+          font-size:13px; font-weight:700; letter-spacing:.12em;
+          text-transform:uppercase; color:rgba(255,255,255,.55);
+          margin-bottom:32px;
+        }
+        .ims-splash-dots { display:flex; gap:7px; align-items:center; }
+        .ims-splash-dot {
+          width:7px; height:7px; border-radius:50%;
+          background:#f59e0b;
+          animation:ims-dots 1.3s ease-in-out infinite;
+        }
+        .ims-splash-dot:nth-child(2) { animation-delay:.18s; }
+        .ims-splash-dot:nth-child(3) { animation-delay:.36s; }
+        .ims-splash-loading {
+          font-family:'Roboto',system-ui,sans-serif;
+          font-size:12px; font-weight:500; letter-spacing:.08em;
+          text-transform:uppercase; color:rgba(255,255,255,.35);
+          margin-top:14px;
+        }
+      `}</style>
+      <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"linear-gradient(160deg,#0a1e3d 0%,#0f2744 60%,#162e52 100%)" }}>
+        <div className="ims-splash-logo">
+          <img src={inspireLogo} alt="Inspire Youth For Development" />
+        </div>
+        <div className="ims-splash-name">Inspire Management System</div>
+        <div className="ims-splash-dots">
+          <div className="ims-splash-dot" />
+          <div className="ims-splash-dot" />
+          <div className="ims-splash-dot" />
+        </div>
+        <div className="ims-splash-loading">Loading</div>
       </div>
     </>
   );
