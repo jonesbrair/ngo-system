@@ -3266,7 +3266,7 @@ function LoginScreen({ onLogin }) {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="admin@inspireyouthdev.org"
+                placeholder="Enter Email"
                 onKeyDown={e => e.key === "Enter" && submit()}
                 autoFocus
               />
