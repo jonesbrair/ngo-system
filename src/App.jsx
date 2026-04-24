@@ -3,6 +3,7 @@ import ProcurementRequisitionPage from "./ProcurementRequisitionPage";
 import { AppIcon, IconBadge } from "./uiIcons";
 import MessagesModule from "./hr/messaging/MessagesModule";
 import { supabase } from "./lib/supabaseClient";
+import { notifyRequestSubmitted, notifyApprovalAction } from "./lib/emailService";
 const inspireLogo = "https://inspireyouthdev.org/wp-content/uploads/2024/10/cropped-Asset-260.png";
 
 // â"€â"€ Identity â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -10904,6 +10905,8 @@ export default function App() {
   const handleApprove = useCallback((r) => {
     approveRequest(r, user);
     syncState();
+    const requester = _users.find(u => u.id === r.requesterId);
+    if (requester?.email) notifyApprovalAction(r, requester, user, "approved", "").catch(e => console.warn("[email]", e.message));
     const newApproval = r.approvals[r.approvals.length - 1];
     supabase.from("requests").update({ status: r.status }).eq("request_number", r.id).select("id").single()
       .then(({ data, error }) => {
@@ -10921,6 +10924,8 @@ export default function App() {
   const handleReject  = useCallback((r, reason) => {
     rejectRequest(r, user, reason);
     syncState();
+    const requester = _users.find(u => u.id === r.requesterId);
+    if (requester?.email) notifyApprovalAction(r, requester, user, "rejected", reason).catch(e => console.warn("[email]", e.message));
     const newApproval = r.approvals[r.approvals.length - 1];
     supabase.from("requests").update({ status: r.status, supporting_docs: { ...r.supporting_docs, lastRejectionReason: reason } }).eq("request_number", r.id).select("id").single()
       .then(({ data, error }) => {
@@ -11173,6 +11178,7 @@ export default function App() {
         editReq.approvals = [];
         addLog(editReq.id, user.id, "Edited and Resubmitted");
         if (supervisor) addNotif(supervisor.id, `Approval needed: Finance request "${editReq.title}" from ${user.name} has been resubmitted and is awaiting your review.`, editReq.id);
+        if (supervisor?.email) notifyRequestSubmitted({ id: editReq.id, title: editReq.title, amount: editReq.amount, createdAt: ts(), requesterName: user.name, requesterEmail: user.email, isResubmission: true }, supervisor).catch(e => console.warn("[email]", e.message));
       }
     } else {
       const id  = `REQ-${String(_nextId++).padStart(4,"0")}`;
@@ -11211,6 +11217,7 @@ export default function App() {
       addLog(id, user.id, submit ? "Submitted for approval" : "Saved as draft");
       if (submit) {
         if (supervisor) addNotif(supervisor.id, `Approval needed: Finance request "${form.title}" from ${user.name} has been submitted and is awaiting your review.`, id);
+        if (supervisor?.email) notifyRequestSubmitted({ id, title: form.title, amount: form.amount, createdAt: ts(), requesterName: user.name, requesterEmail: user.email }, supervisor).catch(e => console.warn("[email]", e.message));
       }
     }
     syncState();
