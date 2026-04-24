@@ -219,6 +219,23 @@ function canAccessModule(user, mod) {
 }
 // All users can always access their personal workspace (requests / notifications)
 const PERSONAL_PAGES = new Set(["my_requests","new_request","notifications","home","my_signature"]);
+const HR_WORKSPACE_PAGES = new Set(["human_resource","hr_staff_files","hr_employees","hr_org_structure","hr_departments","hr_positions","hr_users","hr_leave","hr_leave_manage","my_leave","leave_apply","my_signature"]);
+
+function getWorkspaceChromeName(user, page) {
+  if (!user) return "";
+  const isHrModulePage = page === "human_resource" || String(page || "").startsWith("hr_");
+  if (isHrModulePage && getModuleRole(user) === "hr") return "HR Dashboard";
+  return user.name;
+}
+
+function getAnnouncementDisplayMessage(item, user) {
+  const rawMessage = String(item?.message || "");
+  if (rawMessage === "Hello, Dashboard welcome") {
+    const firstName = String(user?.name || "").trim().split(/\s+/)[0] || "there";
+    return `Hello, ${firstName} welcome`;
+  }
+  return rawMessage;
+}
 
 const DEFAULT_POSITIONS = [
   "Volunteer",
@@ -479,12 +496,12 @@ let _employees   = [];
 let _nextEmpId   = 20;
 
 function genEmployeeId() {
+  // Scan past any IDs already in use (handles counter drift from cancelled forms or imports)
   const used = new Set(_employees.map(e => e.employeeId).filter(Boolean));
-  let id;
-  do {
-    id = `IYD-${String(_nextEmpId++).padStart(3, "0")}`;
-  } while (used.has(id));
-  return id;
+  while (used.has(`IYD-${String(_nextEmpId).padStart(3, "0")}`)) {
+    _nextEmpId++;
+  }
+  return `IYD-${String(_nextEmpId++).padStart(3, "0")}`;
 }
 
 // ── HR: Org Structure ─────────────────────────────────────────────────────────
@@ -503,6 +520,11 @@ const DEFAULT_HR_DEPARTMENTS = [
 let _hrDepartments = DEFAULT_HR_DEPARTMENTS.map(d => ({ ...d, headId:"", createdAt: new Date().toISOString() }));
 let _hrPositions   = [];
 const SPECIAL_DASHBOARDS = {
+  human_resource: {
+    label: "HR Manager Dashboard",
+    page: "human_resource",
+    accessRole: "hr",
+  },
   procurement: {
     label: "Procurement Officer Dashboard",
     page: "procurement",
@@ -525,6 +547,7 @@ const SPECIAL_DASHBOARDS = {
   },
 };
 const DEFAULT_POSITION_DASHBOARDS = {
+  "HR Manager": "human_resource",
   "Senior Accountant": "financial_reports",
   "Payment Officer": "payment_queue",
   "Procurement Officer": "procurement",
@@ -3381,7 +3404,8 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
   const [selected, setSelected]  = useState(null);
   const [showForm, setShowForm]  = useState(false);
   const [editEmp,  setEditEmp]   = useState(null);
-  const [toast,    setToast]     = useState("");
+  const [toast,     setToast]    = useState("");
+  const [saveError, setSaveError] = useState("");
   const [biodataEmp, setBiodataEmp] = useState(null); // employee to show in PDF modal
   const [activeTab, setActiveTab] = useState("biodata");
   const [docForm, setDocForm] = useState({ docType:"Contract", displayName:"" });
@@ -3457,7 +3481,9 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
   };
 
   const saveEmployee = () => {
-    if (!form.name.trim() || !form.email.trim()) return;
+    if (!form.name.trim()) { setSaveError("Full Name is required."); return; }
+    if (!form.email.trim()) { setSaveError("Work Email is required — scroll down to the Contact Details section."); return; }
+    setSaveError("");
     if (editEmp) {
       Object.assign(editEmp, { ...form, name: form.name.trim(), email: form.email.trim() });
       const nameParts = form.name.trim().split(" ");
@@ -3972,7 +3998,8 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
           <EmployeeFormModal
             form={form} setF={setF} positions={positions}
             employees={employees} editEmp={editEmp}
-            onSave={saveEmployee} onClose={() => { setShowForm(false); setEditEmp(null); }}
+            saveError={saveError}
+            onSave={saveEmployee} onClose={() => { setSaveError(""); setShowForm(false); setEditEmp(null); }}
           />
         )}
         {biodataEmp && <BiodataPDFModal emp={biodataEmp} onClose={() => setBiodataEmp(null)} />}
@@ -4070,7 +4097,8 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
         <EmployeeFormModal
           form={form} setF={setF} positions={positions}
           employees={employees} editEmp={editEmp}
-          onSave={saveEmployee} onClose={() => { setShowForm(false); setEditEmp(null); }}
+          saveError={saveError}
+          onSave={saveEmployee} onClose={() => { setSaveError(""); setShowForm(false); setEditEmp(null); }}
         />
       )}
       {biodataEmp && <BiodataPDFModal emp={biodataEmp} onClose={() => setBiodataEmp(null)} />}
@@ -4078,7 +4106,7 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
   );
 }
 
-function EmployeeFormModal({ form, setF, positions, employees, editEmp, onSave, onClose }) {
+function EmployeeFormModal({ form, setF, positions, employees, editEmp, onSave, onClose, saveError }) {
   const supervisorOptions = employees.filter(e => editEmp ? e.id !== editEmp.id : true);
 
   // Departments: always use _hrDepartments (the live HR list); fall back to DEPARTMENTS constant only if empty
@@ -4110,6 +4138,11 @@ function EmployeeFormModal({ form, setF, positions, employees, editEmp, onSave, 
       size="modal-lg"
       footer={
         <>
+          {saveError && (
+            <div style={{ flex:1, color:"#dc2626", fontSize:13, fontWeight:600, background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, padding:"8px 12px" }}>
+              ⚠ {saveError}
+            </div>
+          )}
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-amber" onClick={onSave}>Save Employee</button>
         </>
@@ -4118,8 +4151,8 @@ function EmployeeFormModal({ form, setF, positions, employees, editEmp, onSave, 
       {/* Employee ID banner */}
       <div style={{ background:"var(--navy-pale)", borderRadius:"var(--r-sm)", padding:"10px 16px", marginBottom:8, display:"flex", alignItems:"center", gap:12 }}>
         <span style={{ fontSize:11, fontWeight:700, color:"var(--g500)", textTransform:"uppercase", letterSpacing:".06em" }}>Employee ID</span>
-        <span style={{ fontFamily:"var(--serif)", fontSize:17, fontWeight:800, color:"var(--navy)", letterSpacing:".04em" }}>
-          {editEmp?.employeeId || form.employeeId}
+        <span style={{ fontFamily:"var(--serif)", fontSize:17, fontWeight:800, color: editEmp ? "var(--navy)" : "var(--g400)", letterSpacing:".04em" }}>
+          {editEmp?.employeeId || form.employeeId || "Auto-assigned on save"}
         </span>
         <span style={{ fontSize:11, color:"var(--g400)", marginLeft:"auto" }}>Auto-generated · read only</span>
       </div>
@@ -5636,13 +5669,14 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
     "payment_queue","notifications","financial_reports","my_leave","leave_apply","my_signature",
   ]);
   const adminPages = new Set(["admin_center","admin_users","admin_budgets","admin_all_requests","admin_logs","my_signature"]);
-  const hrPages = new Set(["human_resource","hr_staff_files","hr_employees","hr_org_structure","hr_departments","hr_positions","hr_users","hr_leave","hr_leave_manage","my_leave","leave_apply","my_signature"]);
+  const hrPages = HR_WORKSPACE_PAGES;
   const messagePages = new Set(["messages_center","my_signature"]);
   const inFinance = financePages.has(page);
   const inAdmin = adminPages.has(page);
   const inHR = hrPages.has(page);
   const inMessages = messagePages.has(page);
   const isHome = page === "home";
+  const chromeUserName = getWorkspaceChromeName(user, page);
   const N = (icon, label, id, badge=null, isActive=page===id, targetPage=id) => (
     <div key={id} className={`nav-item ${isActive?"active":""}`} onClick={() => { setPage(targetPage); onClose(); }}>
       <span className="nav-icon">
@@ -5729,7 +5763,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
         {inHR && <>
           <div className="nav-sec">Navigation</div>
           {N("home","Home","home")}
-          <div className="nav-sec">Human Resource</div>
+          <div className="nav-sec">Human Resources</div>
           {N("hr","Overview","human_resource")}
           {(mr === "hr" || isAdmin) && <>
             {N("doc","Staff Files","hr_staff_files")}
@@ -5774,7 +5808,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
         <div className="user-chip">
           <Avatar str={user.avatar} />
           <div className="user-chip-copy">
-            <div className="u-name">{user.name}</div>
+            <div className="u-name">{chromeUserName}</div>
             <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:2 }}>
               <div style={{ width:6, height:6, borderRadius:"50%", background:MODULE_ROLE_COLORS[getModuleRole(user)] || "#64748b", flexShrink:0 }} />
               <div className="u-role">{MODULE_ROLE_LABELS[getModuleRole(user)] || "Staff"}</div>
@@ -5835,11 +5869,11 @@ function SystemHome({ setPage, user }) {
   homeCards.splice(isAdmin ? 3 : 2, 0, {
     key:"hr",
     icon:"hr",
-    label:"Human Resources",
+    label: hasDashboardAccess(user, "human_resource") ? "HR Manager" : "Human Resources",
     sub:canAccessModule(user, "hr")
       ? "Manage employee biodata, contracts, CVs, certificates, leave history, and linked user records."
       : "Open the HR leave workspace for leave applications, balances, and personal leave tracking.",
-    meta:canAccessModule(user, "hr") ? "Restricted module" : "Leave workspace",
+    meta: hasDashboardAccess(user, "human_resource") ? "Specialized dashboard" : canAccessModule(user, "hr") ? "Restricted module" : "Leave workspace",
     page:"human_resource",
     tone:"teal",
   });
@@ -5910,7 +5944,7 @@ function SystemHome({ setPage, user }) {
                     {item.audienceType === "department" ? `${item.department} department` : "All staff"}
                     {!item.readBy?.includes(user.id) && <span style={{ marginLeft:8, color:"#0f766e" }}>New</span>}
                   </div>
-                  <div style={{ marginTop:8, color:"var(--g700)", lineHeight:1.6, fontSize:14, whiteSpace:"pre-wrap" }}>{item.message}</div>
+                  <div style={{ marginTop:8, color:"var(--g700)", lineHeight:1.6, fontSize:14, whiteSpace:"pre-wrap" }}>{getAnnouncementDisplayMessage(item, user)}</div>
                 </div>
               ))}
             </div>
@@ -11365,6 +11399,7 @@ export default function App() {
   const notifCount   = _notifications.filter(n=>n.userId===user?.id&&!n.read).length;
   const messageUnreadCount = getUnreadMessagesCountForUser(user);
   const canGoBack = pageHistoryRef.current.length > 0;
+  const chromeUserName = getWorkspaceChromeName(user, page);
 
   if (!authChecked) return (
     <>
@@ -11439,7 +11474,7 @@ export default function App() {
     messages_center:"Messages Center",
     admin_users:"User Management", admin_budgets:"Project Budgets", admin_all_requests:"All Requests", admin_logs:"Activity Logs",
     procurement:"Procurement", executive_procurement:"Executive Approval",
-    human_resource:"Human Resource", hr_staff_files:"Staff Files", hr_employees:"Employee Registry",
+    human_resource:"Human Resources", hr_staff_files:"Staff Files", hr_employees:"Employee Registry",
     hr_org_structure:"Organisational Structure", hr_departments:"Departments", hr_positions:"Positions",
     project_management:"Project Management", asset_management:"Asset Management",
     document_management:"Document Management", communication:"Communication",
@@ -11512,7 +11547,7 @@ export default function App() {
             employees={_employees}
             departments={(_hrDepartments || []).map(item => item.name).filter(Boolean)}
             messages={_messages}
-            announcements={getRelevantAnnouncementsForUser(user).map(item => ({ ...item, visibleToCurrentUser:true }))}
+            announcements={getRelevantAnnouncementsForUser(user).map(item => ({ ...item, message:getAnnouncementDisplayMessage(item, user), visibleToCurrentUser:true }))}
             unreadCount={messageUnreadCount}
             allowedRecipientIds={getAllowedMessageRecipients(user).map(item => item.id)}
             canPublishAnnouncements={canPublishMessagesAnnouncement(user)}
@@ -11674,7 +11709,7 @@ export default function App() {
               </div>
               <Avatar str={user.avatar} />
               <div style={{ marginLeft:4 }}>
-                <div style={{ fontSize:13, fontWeight:600, color:"var(--g800)" }}>{user.name}</div>
+                <div style={{ fontSize:13, fontWeight:600, color:"var(--g800)" }}>{chromeUserName}</div>
                 <div style={{ fontSize:11, color:"var(--g500)" }}>{getUserPosition(user)}</div>
               </div>
             </div>
