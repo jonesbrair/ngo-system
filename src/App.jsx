@@ -2934,9 +2934,9 @@ function Avatar({ str, size="" }) {
   return <div className={`avatar ${size}`}>{str}</div>;
 }
 
-function Modal({ title, onClose, children, footer, size="" }) {
+function Modal({ title, onClose, children, footer, size="", preventOverlayClose=false }) {
   return (
-    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="overlay" onClick={e => !preventOverlayClose && e.target === e.currentTarget && onClose()}>
       <div className={`modal ${size}`}>
         <div className="modal-header">
           <div className="modal-title">{title}</div>
@@ -9677,6 +9677,8 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [activeWorkspace, setActiveWorkspace] = useState("positions");
+  const [createdCredentials, setCreatedCredentials] = useState(null);
+  const [showPass, setShowPass] = useState(false);
   const managers = users.filter(u => u.id !== editUser?.id);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -9752,7 +9754,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       setShowForm(false);
       setEditUser(null);
       syncUsers();
-      showToast(`User added: ${form.name} — they can now log in`);
+      setCreatedCredentials({ name: form.name, email: u.email, password: form.password.trim() });
     } finally {
       setSaving(false);
     }
@@ -10324,10 +10326,11 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       )}
 
       {showForm && (
-        <Modal title={editUser ? "Edit User" : "Add New User"} onClose={()=>{ if (!saving) { setShowForm(false); setEditUser(null); } }}
+        <Modal title={editUser ? "Edit User" : "Add New User"} preventOverlayClose
+          onClose={()=>{ if (!saving) { setShowForm(false); setEditUser(null); setShowPass(false); } }}
           footer={
             <>
-              <button className="btn btn-ghost" disabled={saving} onClick={()=>{setShowForm(false);setEditUser(null);}}>Cancel</button>
+              <button className="btn btn-ghost" disabled={saving} onClick={()=>{setShowForm(false);setEditUser(null);setShowPass(false);}}>Cancel</button>
               <button className="btn btn-amber" disabled={saving} onClick={saveUser}>
                 {saving ? "Creating account…" : "Save User"}
               </button>
@@ -10338,7 +10341,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
               <input value={form.name} onChange={e=>setF("name",e.target.value)} placeholder="Jane Doe" />
             </FormField>
             <FormField label="Email Address">
-              <input type="email" value={form.email} onChange={e=>setF("email",e.target.value)} placeholder="jane@etara.org" />
+              <input type="email" value={form.email} onChange={e=>setF("email",e.target.value)} placeholder="jane@inspireyouthdev.org" />
             </FormField>
             <FormField label="Module Role" hint="Controls which modules this user can access in the system.">
               <select value={form.moduleRole} onChange={e=>setF("moduleRole",e.target.value)}>
@@ -10368,12 +10371,47 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
                 {managers.map(u => <option key={u.id} value={u.id}>{u.name} · {u.jobTitle || ROLE_LABELS[u.role]}</option>)}
               </select>
             </FormField>
-            <FormField label="Password" full>
-              <input value={form.password} onChange={e=>setF("password",e.target.value)} />
-            </FormField>
+            {!editUser && (
+              <FormField label="Password" full>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type={showPass ? "text" : "password"} value={form.password} onChange={e=>setF("password",e.target.value)} style={{ flex:1 }} />
+                  <button type="button" className="btn btn-ghost" style={{ whiteSpace:"nowrap", padding:"0 12px" }} onClick={()=>setShowPass(v=>!v)}>
+                    {showPass ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </FormField>
+            )}
           </div>
           <div className="field-hint" style={{ marginTop:10 }}>
             <strong>Module Role</strong> = which system areas this user can access. <strong>Workflow Access</strong> = their role in the finance approval chain (auto-derived from their position).
+          </div>
+        </Modal>
+      )}
+
+      {createdCredentials && (
+        <Modal title="Account Created" preventOverlayClose onClose={()=>setCreatedCredentials(null)}
+          footer={<button className="btn btn-amber" onClick={()=>setCreatedCredentials(null)}>Done</button>}>
+          <p style={{ color:"#475569", marginBottom:16 }}>
+            The account for <strong>{createdCredentials.name}</strong> has been created. Share these login credentials with the user:
+          </p>
+          <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:8, padding:"16px 20px", marginBottom:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <span style={{ color:"#64748b", fontSize:13 }}>Email</span>
+              <span style={{ fontWeight:600, color:"#1e293b" }}>{createdCredentials.email}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ color:"#64748b", fontSize:13 }}>Password</span>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontWeight:600, color:"#1e293b", fontFamily:"monospace" }}>{createdCredentials.password}</span>
+                <button className="btn btn-ghost" style={{ padding:"2px 10px", fontSize:12 }}
+                  onClick={()=>{ navigator.clipboard.writeText(createdCredentials.password); showToast("Password copied!"); }}>
+                  Copy
+                </button>
+              </div>
+            </div>
+          </div>
+          <div style={{ background:"#fefce8", border:"1px solid #fde68a", borderRadius:6, padding:"10px 14px", fontSize:13, color:"#92400e" }}>
+            The user must log in at <strong>{window.location.origin}</strong> — not localhost.
           </div>
         </Modal>
       )}
