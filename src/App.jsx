@@ -479,7 +479,12 @@ let _employees   = [];
 let _nextEmpId   = 20;
 
 function genEmployeeId() {
-  return `IYD-${String(_nextEmpId++).padStart(3, "0")}`;
+  const used = new Set(_employees.map(e => e.employeeId).filter(Boolean));
+  let id;
+  do {
+    id = `IYD-${String(_nextEmpId++).padStart(3, "0")}`;
+  } while (used.has(id));
+  return id;
 }
 
 // ── HR: Org Structure ─────────────────────────────────────────────────────────
@@ -3335,7 +3340,7 @@ function HRHome({ setPage, user }) {
   return (
     <div className="page">
       <div className="hr-home-banner">
-        <div className="hr-banner-title">Human Resource Module</div>
+        <div className="hr-banner-title">Human Resources</div>
         <div className="hr-banner-sub">
           {isHRManager
             ? "Manage employee profiles, biodata forms, contracts, CVs, certificates, leave history, and employment records in one secure HR workspace."
@@ -3386,8 +3391,8 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
   const fileInputRef = useRef(null);
 
   const makeBlankForm = () => ({
-    // Identity
-    employeeId: genEmployeeId(),
+    // Identity — ID is assigned at save time, not here, to avoid wasting numbers on cancelled forms
+    employeeId: "",
     // Personal
     name:"", otherNames:"", gender:"", dob:"", nationality:"Ugandan",
     maritalStatus:"", nationalId:"", passportNo:"", tin:"", nssfNo:"",
@@ -3481,7 +3486,7 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
         ...form,
         name: form.name.trim(),
         email: form.email.trim(),
-        // employeeId already in form — pre-generated in makeBlankForm()
+        employeeId: genEmployeeId(), // generated at save time so cancelled forms never consume an ID
       };
       _employees.push(newEmp);
       const nameParts = newEmp.name.split(" ");
@@ -4330,7 +4335,7 @@ function BiodataPDFModal({ emp, onClose }) {
         {/* Branded header */}
         <div className="report-header">
           <div className="report-brand">
-            <img src={inspireLogo} alt="IYD logo" style={{ width:56, height:56, objectFit:"contain", borderRadius:8, background:"var(--navy)", padding:4 }} />
+            <img src={inspireLogo} alt="IYD logo" style={{ width:56, height:56, objectFit:"contain", borderRadius:8, background:"#fff", padding:4 }} />
             <div>
               <div className="pdf-logo">{ORG_NAME}</div>
               <div className="text-xs text-gray" style={{ fontWeight:600, letterSpacing:".04em" }}>INSPIRE YOUTH FOR DEVELOPMENT (IYD)</div>
@@ -5665,7 +5670,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           {N("finance","Finance","finance",null,false,"dashboard")}
           {isAdmin && N("admin","Admin Center","admin_center")}
           {N("prc","Procurement","procurement")}
-          {N("hr","Human Resource","human_resource")}
+          {N("hr","Human Resources","human_resource")}
           {N("com","Messages","messages_center", messageUnreadCount)}
           {N("pm","Project Management","project_management")}
           {N("ast","Asset Management","asset_management")}
@@ -5830,7 +5835,7 @@ function SystemHome({ setPage, user }) {
   homeCards.splice(isAdmin ? 3 : 2, 0, {
     key:"hr",
     icon:"hr",
-    label:"Human Resource",
+    label:"Human Resources",
     sub:canAccessModule(user, "hr")
       ? "Manage employee biodata, contracts, CVs, certificates, leave history, and linked user records."
       : "Open the HR leave workspace for leave applications, balances, and personal leave tracking.",
