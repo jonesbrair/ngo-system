@@ -312,7 +312,7 @@ let _nextLeaveId       = 1;
 
 // ── Staff Documents ───────────────────────────────────────────────────────────
 // Documents stored as base64 dataURLs (localStorage, max ~5 MB each).
-const DOC_TYPES = ["Contract","CV / Resume","Certificate","Leave Form","Identity Document","Policy Acknowledgement","Other"];
+const DOC_TYPES = ["Contract","CV / Resume","Academic Document","Certificate","Leave Form","Identity Document","Policy Acknowledgement","Disciplinary Record","Other"];
 let _empDocuments = []; // { id, employeeId, docType, displayName, fileName, mimeType, sizeBytes, data, uploadedAt, uploadedBy }
 let _messages = []; // { id, senderId, receiverId, message, timestamp, status }
 let _announcements = []; // { id, senderId, audienceType, department, message, timestamp, status, readBy }
@@ -3693,7 +3693,7 @@ function empInitials(name="") {
   return name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2) || "?";
 }
 
-function EmployeeRegistry({ onSystemChange, setPage, user }) {
+function EmployeeRegistry({ onSystemChange, setPage, user, mode = "registry" }) {
   const [employees, setEmployees] = useState([..._employees]);
   const [positions]               = useState(() => getPositionOptions(_users, _positions));
   const [search,  setSearch]      = useState("");
@@ -3712,6 +3712,7 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
   const [uploadErr, setUploadErr] = useState("");
   const [uploadOk, setUploadOk] = useState("");
   const fileInputRef = useRef(null);
+  const filesUploadDocTypeRef = useRef("Contract"); // tracks which section triggered upload in files mode
 
   const makeBlankForm = () => ({
     // Identity — ID is assigned at save time, not here, to avoid wasting numbers on cancelled forms
@@ -3851,7 +3852,7 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
   const openProfile = (emp) => {
     setSelected(emp);
     setView("profile");
-    setActiveTab("biodata");
+    setActiveTab(mode === "files" ? "documents" : "biodata");
     setActiveDocFolder("all");
     setUploadErr("");
     setUploadOk("");
@@ -3912,12 +3913,13 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
       if (!file) return;
       setUploadErr(""); setUploadOk("");
       if (file.size > 5 * 1024 * 1024) { setUploadErr("File too large — maximum size is 5 MB."); return; }
+      const effectiveDocType = mode === "files" ? filesUploadDocTypeRef.current : docForm.docType;
       const reader = new FileReader();
       reader.onload = (ev) => {
         const doc = {
           id: `doc-${Date.now()}`,
           employeeId: fresh.id,
-          docType: docForm.docType,
+          docType: effectiveDocType,
           displayName: docForm.displayName.trim() || file.name,
           fileName: file.name,
           mimeType: file.type,
@@ -3928,12 +3930,18 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
         };
         _empDocuments.push(doc);
         saveState();
-        setDocForm({ docType:"Contract", displayName:"" });
-        setUploadOk(`"${doc.displayName}" uploaded successfully.`);
+        if (mode !== "files") setDocForm({ docType:"Contract", displayName:"" });
+        setUploadOk(`"${doc.displayName}" uploaded.`);
         setTimeout(() => setUploadOk(""), 4000);
         if (fileInputRef.current) fileInputRef.current.value = "";
       };
       reader.readAsDataURL(file);
+    };
+
+    const triggerSectionUpload = (docType) => {
+      filesUploadDocTypeRef.current = docType;
+      setDocForm(f => ({ ...f, displayName:"" }));
+      if (fileInputRef.current) { fileInputRef.current.value = ""; fileInputRef.current.click(); }
     };
 
     const deleteDoc = (docId) => {
@@ -3963,27 +3971,38 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
       </div>
     );
 
-    const TABS = [
-      { id:"biodata",   label:"Biodata"         },
-      { id:"documents", label:`Documents (${docs.length})` },
-      { id:"leave",     label:`Leave (${empLeave.length})` },
-      { id:"system",    label:"System Account"  },
-    ];
+    const approvedLeaveForStaff = empLeave.filter(a => a.status === "approved");
+    const TABS = mode === "files"
+      ? [
+          { id:"documents", label:"Staff File" },
+          { id:"biodata",   label:"Biodata" },
+          { id:"leave",     label:`Leave History (${empLeave.length})` },
+        ]
+      : [
+          { id:"biodata",   label:"Biodata" },
+          { id:"documents", label:`Documents (${docs.length})` },
+          { id:"leave",     label:`Leave (${empLeave.length})` },
+          { id:"system",    label:"System Account" },
+        ];
 
     return (
       <div className="page">
         <div style={{ marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
           <button className="btn btn-ghost" onClick={() => { setView("list"); setSelected(null); }}>
-            <AppButtonIcon name="back" tone="teal" size={13} /> Back to Registry
+            <AppButtonIcon name="back" tone="teal" size={13} /> {mode === "files" ? "Back to Staff Files" : "Back to Registry"}
           </button>
           <div className="flex gap-2">
-            <button className="btn btn-amber" onClick={() => openEdit(fresh)}>
-              <AppButtonIcon name="edit" tone="amber" size={13} /> Edit
-            </button>
-            <button className="btn btn-primary" onClick={() => setBiodataEmp(fresh)}>
-              <AppButtonIcon name="download" tone="navy" size={13} /> Download Biodata
-            </button>
-            <button className="btn btn-ghost" style={{ color:"var(--red)", borderColor:"#fecaca" }} onClick={() => deleteEmployee(fresh)}>Delete</button>
+            {mode !== "files" && (
+              <>
+                <button className="btn btn-amber" onClick={() => openEdit(fresh)}>
+                  <AppButtonIcon name="edit" tone="amber" size={13} /> Edit
+                </button>
+                <button className="btn btn-primary" onClick={() => setBiodataEmp(fresh)}>
+                  <AppButtonIcon name="download" tone="navy" size={13} /> Download Biodata
+                </button>
+                <button className="btn btn-ghost" style={{ color:"var(--red)", borderColor:"#fecaca" }} onClick={() => deleteEmployee(fresh)}>Delete</button>
+              </>
+            )}
           </div>
         </div>
 
@@ -4078,8 +4097,148 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
             </div>
           )}
 
-          {/* ── DOCUMENTS TAB ── */}
-          {activeTab === "documents" && (
+          {/* ── DOCUMENTS TAB (FILES MODE) ── */}
+          {activeTab === "documents" && mode === "files" && (() => {
+            const sectionDocIcon = (type) => {
+              if (type === "Contract")          return "📄";
+              if (type === "CV / Resume")       return "👤";
+              if (type === "Academic Document") return "🎓";
+              if (type === "Certificate")       return "🏅";
+              if (type === "Disciplinary Record") return "⚠️";
+              if (type === "Identity Document") return "🪪";
+              return "📎";
+            };
+            const SectionHeader = ({ icon, title, subtitle, count, onUpload }) => (
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:22 }}>{icon}</span>
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--navy)" }}>
+                      {title}
+                      {count != null && <span style={{ marginLeft:6, fontWeight:600, fontSize:12, color:"var(--g400)" }}>({count})</span>}
+                    </div>
+                    {subtitle && <div style={{ fontSize:12, color:"var(--g500)", marginTop:1 }}>{subtitle}</div>}
+                  </div>
+                </div>
+                {onUpload && isHRAdmin && (
+                  <button className="btn btn-ghost btn-sm" onClick={onUpload}>+ Upload</button>
+                )}
+              </div>
+            );
+            const DocRow = ({ doc }) => (
+              <div key={doc.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", background:"#fff", border:"1px solid var(--g100)", borderRadius:8, marginBottom:6 }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{sectionDocIcon(doc.docType)}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:"var(--navy)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{doc.displayName}</div>
+                  <div style={{ fontSize:11, color:"var(--g400)", marginTop:2 }}>{doc.fileName} · {fmtBytes(doc.sizeBytes)} · {fmtShort(doc.uploadedAt)}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button className="btn btn-primary btn-sm" onClick={() => downloadDoc(doc)}>⬇ Download</button>
+                  {isHRAdmin && <button className="btn btn-ghost btn-sm" style={{ color:"#dc2626", borderColor:"#fca5a5" }} onClick={() => deleteDoc(doc.id)}>Remove</button>}
+                </div>
+              </div>
+            );
+            const EmptySlot = ({ msg }) => (
+              <div style={{ padding:"14px 18px", border:"1px dashed var(--g200)", borderRadius:8, color:"var(--g400)", fontSize:13, background:"#fcfcfd" }}>{msg}</div>
+            );
+            const contractDocs  = docs.filter(d => d.docType === "Contract");
+            const cvDocs        = docs.filter(d => d.docType === "CV / Resume");
+            const academicDocs  = docs.filter(d => d.docType === "Academic Document" || d.docType === "Certificate");
+            const otherDocs     = docs.filter(d => !["Contract","CV / Resume","Academic Document","Certificate","Leave Form"].includes(d.docType));
+            const OTHER_TYPES   = ["Identity Document","Policy Acknowledgement","Disciplinary Record","Other"];
+            return (
+              <div style={{ padding:"22px", display:"flex", flexDirection:"column", gap:22 }}>
+                {/* Shared hidden file input */}
+                <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls" style={{ display:"none" }} onChange={handleUpload} />
+                {uploadOk && <div className="alert alert-green">{uploadOk}</div>}
+                {uploadErr && <div className="alert alert-red">{uploadErr}</div>}
+
+                {/* ── 1. Biodata Form ── */}
+                <div>
+                  <SectionHeader icon="📋" title="Biodata Form" subtitle="Official employee biodata. Edit only via the Employee Registry." />
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 18px", background:"var(--navy-pale)", border:"1px solid var(--navy-light,#3b5998)22", borderRadius:10 }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:14, color:"var(--navy)" }}>{fresh.name}</div>
+                      <div style={{ fontSize:12, color:"var(--g500)", marginTop:2 }}>{fresh.position || "—"} · {fresh.department} · {fresh.employeeId || "—"}</div>
+                    </div>
+                    <button className="btn btn-primary btn-sm" onClick={() => setBiodataEmp(fresh)}>⬇ Download Biodata Form</button>
+                  </div>
+                  <div style={{ fontSize:11, color:"var(--g400)", marginTop:6 }}>To update biodata details, use the Employee Registry.</div>
+                </div>
+
+                {/* ── 2. Approved Leave Forms ── */}
+                <div>
+                  <SectionHeader icon="🏖️" title="Approved Leave Forms" subtitle="Fully approved leave forms with complete approval trail." count={approvedLeaveForStaff.length} />
+                  {approvedLeaveForStaff.length === 0
+                    ? <EmptySlot msg="No fully approved leave applications on record for this staff member." />
+                    : approvedLeaveForStaff.map(a => {
+                        const lt = LEAVE_TYPES.find(l => l.id === a.leaveTypeId);
+                        return (
+                          <div key={a.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", background:"#fff", border:"1px solid var(--g100)", borderRadius:8, marginBottom:6 }}>
+                            <span style={{ fontSize:18, flexShrink:0 }}>🏖️</span>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontWeight:700, fontSize:13, color:"var(--navy)" }}>{a.id} — {lt?.name || a.leaveTypeId}</div>
+                              <div style={{ fontSize:11, color:"var(--g400)", marginTop:2 }}>
+                                {fmtShort(a.startDate)} – {fmtShort(a.endDate)} · {a.numDays} day{a.numDays !== 1 ? "s" : ""} · Approved {fmtShort(a.approvedAt)}
+                              </div>
+                            </div>
+                            <button className="btn btn-primary btn-sm" onClick={() => {
+                              const lf = document.createElement("a");
+                              lf.href = buildLeaveApprovalDocumentData(a);
+                              lf.download = `${a.id}-approved-leave-form.html`;
+                              lf.click();
+                            }}>⬇ Download Form</button>
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+
+                {/* ── 3. Contract ── */}
+                <div>
+                  <SectionHeader icon="📄" title="Staff Contract" subtitle="Signed employment contract." count={contractDocs.length} onUpload={() => triggerSectionUpload("Contract")} />
+                  {contractDocs.length === 0 ? <EmptySlot msg="No contract uploaded yet." /> : contractDocs.map(d => <DocRow key={d.id} doc={d} />)}
+                </div>
+
+                {/* ── 4. Curriculum Vitae ── */}
+                <div>
+                  <SectionHeader icon="👤" title="Curriculum Vitae (CV)" subtitle="Staff CV or résumé." count={cvDocs.length} onUpload={() => triggerSectionUpload("CV / Resume")} />
+                  {cvDocs.length === 0 ? <EmptySlot msg="No CV uploaded yet." /> : cvDocs.map(d => <DocRow key={d.id} doc={d} />)}
+                </div>
+
+                {/* ── 5. Academic Documents ── */}
+                <div>
+                  <SectionHeader icon="🎓" title="Academic Documents" subtitle="Degrees, diplomas, certificates, and academic transcripts." count={academicDocs.length} onUpload={() => triggerSectionUpload("Academic Document")} />
+                  {academicDocs.length === 0 ? <EmptySlot msg="No academic documents uploaded yet." /> : academicDocs.map(d => <DocRow key={d.id} doc={d} />)}
+                </div>
+
+                {/* ── 6. Other Documents ── */}
+                <div>
+                  <SectionHeader icon="📎" title="Other Documents" subtitle="Identity documents, disciplinary records, policy acknowledgements, and any other supporting files." count={otherDocs.length} />
+                  {isHRAdmin && (
+                    <div style={{ display:"flex", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+                      <select style={{ flex:"0 0 auto", fontSize:13, padding:"6px 10px", border:"1px solid var(--g200)", borderRadius:6, background:"#fff", color:"var(--navy)" }}
+                        value={docForm.docType}
+                        onChange={e => setDocForm(f => ({ ...f, docType: e.target.value }))}>
+                        {OTHER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <input style={{ flex:1, minWidth:160, fontSize:13, padding:"6px 10px", border:"1px solid var(--g200)", borderRadius:6 }}
+                        placeholder="Display name (optional)" value={docForm.displayName}
+                        onChange={e => setDocForm(f => ({ ...f, displayName: e.target.value }))} />
+                      <button className="btn btn-ghost btn-sm" onClick={() => {
+                        filesUploadDocTypeRef.current = docForm.docType;
+                        if (fileInputRef.current) { fileInputRef.current.value = ""; fileInputRef.current.click(); }
+                      }}>+ Upload</button>
+                    </div>
+                  )}
+                  {otherDocs.length === 0 ? <EmptySlot msg="No other documents uploaded yet." /> : otherDocs.map(d => <DocRow key={d.id} doc={d} />)}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── DOCUMENTS TAB (REGISTRY MODE) ── */}
+          {activeTab === "documents" && mode !== "files" && (
             <div style={{ padding:"22px" }}>
               {!isHRAdmin && (
                 <div className="alert alert-red" style={{ marginBottom:16 }}>Document management is restricted to HR and Admin users.</div>
@@ -4311,12 +4470,14 @@ function EmployeeRegistry({ onSystemChange, setPage, user }) {
     <div className="page">
       <div className="page-header flex items-center justify-between">
         <div>
-          <div className="page-title">Employee Registry</div>
-          <div className="page-sub">{employees.length} employee{employees.length !== 1 ? "s" : ""} · {employees.filter(e=>e.status==="Active").length} active · full staff files with biodata, documents, and leave history</div>
+          <div className="page-title">{mode === "files" ? "Staff Files" : "Employee Registry"}</div>
+          <div className="page-sub">{employees.length} employee{employees.length !== 1 ? "s" : ""} · {employees.filter(e=>e.status==="Active").length} active · {mode === "files" ? "select a staff member to view their documents, leave forms, and uploaded files" : "full staff files with biodata, documents, and leave history"}</div>
         </div>
-        <button className="btn btn-amber" onClick={openAdd}>
-          <AppButtonIcon name="add" tone="amber" size={13} /> Add Employee
-        </button>
+        {mode !== "files" && (
+          <button className="btn btn-amber" onClick={openAdd}>
+            <AppButtonIcon name="add" tone="amber" size={13} /> Add Employee
+          </button>
+        )}
       </div>
 
       {toast && <div className="alert alert-green" style={{ marginBottom:14 }}>{toast}</div>}
@@ -12249,7 +12410,7 @@ export default function App() {
 
       case "hr_staff_files":
         if (!canAccessModule(user, "hr")) return <AccessDeniedPage title="HR Access Restricted" description="Staff files are available only to HR and Admin users." setPage={setPage} />;
-        return <EmployeeRegistry onSystemChange={refresh} setPage={setPage} user={user} />;
+        return <EmployeeRegistry onSystemChange={refresh} setPage={setPage} user={user} mode="files" />;
 
       case "hr_employees":
         if (!canAccessModule(user, "hr")) return <AccessDeniedPage title="HR Access Restricted" description="Employee records and staff files are available only to HR and Admin users." setPage={setPage} />;
