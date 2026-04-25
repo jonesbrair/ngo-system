@@ -9674,6 +9674,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
   const [delegationForm, setDelegationForm] = useState({ dashboard:"", ownerUserId:"", delegateUserId:"", startsOn:"", endsOn:"", reason:"" });
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
+  const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [activeWorkspace, setActiveWorkspace] = useState("positions");
@@ -9696,11 +9697,13 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
 
   const openAdd = () => {
     setEditUser(null);
+    setFormError("");
     setForm({ name:"", email:"", jobTitle:ROLE_LABELS.requester, dept:"Programs", password:"Staff@2024!", supervisorId:users[0]?.id || "", moduleRole:"staff" });
     setShowForm(true);
   };
   const openEdit = (u) => {
     setEditUser(u);
+    setFormError("");
     setForm({ name:u.name, email:u.email, jobTitle:getUserPosition(u), dept:u.dept, password:u.password, supervisorId:u.supervisorId || "", moduleRole:getModuleRole(u) });
     setShowForm(true);
   };
@@ -9729,7 +9732,8 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       setEditUser(null);
       return;
     }
-    if (!form.password?.trim()) { showToast("Password is required"); return; }
+    if (!form.password?.trim()) { setFormError("Password is required."); return; }
+    setFormError("");
     setSaving(true);
     try {
       const avatar = form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
@@ -9744,15 +9748,17 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       });
       if (error || data?.error) {
         let msg = data?.error || error?.message || "Unknown error";
-        if (error?.context?.json) {
-          try { const body = await error.context.json(); msg = body?.error || msg; } catch {}
+        if (error?.context && typeof error.context.json === "function") {
+          try { const body = await error.context.json(); msg = body?.error || body?.message || msg; } catch {}
         }
-        showToast(`Error: ${msg}`);
+        setFormError(msg);
         return;
       }
+      if (data?.profileId) u.id = data.profileId;
       _users.push(u);
       setShowForm(false);
       setEditUser(null);
+      setFormError("");
       syncUsers();
       setCreatedCredentials({ name: form.name, email: u.email, password: form.password.trim() });
     } finally {
@@ -10327,15 +10333,20 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
 
       {showForm && (
         <Modal title={editUser ? "Edit User" : "Add New User"} preventOverlayClose
-          onClose={()=>{ if (!saving) { setShowForm(false); setEditUser(null); setShowPass(false); } }}
+          onClose={()=>{ if (!saving) { setShowForm(false); setEditUser(null); setShowPass(false); setFormError(""); } }}
           footer={
             <>
-              <button className="btn btn-ghost" disabled={saving} onClick={()=>{setShowForm(false);setEditUser(null);setShowPass(false);}}>Cancel</button>
+              <button className="btn btn-ghost" disabled={saving} onClick={()=>{setShowForm(false);setEditUser(null);setShowPass(false);setFormError("");}}>Cancel</button>
               <button className="btn btn-amber" disabled={saving} onClick={saveUser}>
                 {saving ? "Creating account…" : "Save User"}
               </button>
             </>
           }>
+          {formError && (
+            <div className="alert alert-red" style={{ marginBottom:14 }}>
+              <strong>Error:</strong> {formError}
+            </div>
+          )}
           <div className="form-grid">
             <FormField label="Full Name">
               <input value={form.name} onChange={e=>setF("name",e.target.value)} placeholder="Jane Doe" />

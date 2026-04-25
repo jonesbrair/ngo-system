@@ -58,9 +58,14 @@ Deno.serve(async (req) => {
       // Fresh user created successfully
       authUserId = createData.id;
     } else {
-      // ── Step 2: If the email already exists in auth, recover the account ──
+      // ── Step 2: Email already exists in auth — recover the account ──────────
       const errMsg = (createData?.msg || createData?.message || createData?.error_description || "").toLowerCase();
-      const isAlreadyExists = createRes.status === 422 || errMsg.includes("already") || errMsg.includes("registered") || errMsg.includes("exists");
+      const isAlreadyExists =
+        createRes.status === 422 ||
+        createData?.error_code === "email_exists" ||
+        errMsg.includes("already") ||
+        errMsg.includes("registered") ||
+        errMsg.includes("exists");
 
       if (!isAlreadyExists) {
         return new Response(
@@ -69,17 +74,37 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Find the existing auth user by listing and matching email (per_page=1000 is safe for an NGO)
-      const listRes = await fetch(
-        `${SUPABASE_URL}/auth/v1/admin/users?per_page=1000&page=1`,
+      // Strategy A: look up the existing auth_user_id from the profile table (fast path)
+      let existingAuthUserId: string | undefined;
+      const profileLookupRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(email)}&select=auth_user_id&limit=1`,
         { headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY } }
       );
-      const listData = await listRes.json();
-      const existing = (listData?.users ?? []).find(
-        (u: { email: string; id: string }) => u.email?.toLowerCase() === email.toLowerCase()
-      );
+      if (profileLookupRes.ok) {
+        const existingProfiles = await profileLookupRes.json();
+        if (existingProfiles?.[0]?.auth_user_id) {
+          existingAuthUserId = existingProfiles[0].auth_user_id;
+        }
+      }
 
-      if (!existing?.id) {
+      // Strategy B: list all auth users and find by email (handles orphaned auth accounts)
+      if (!existingAuthUserId) {
+        const listRes = await fetch(
+          `${SUPABASE_URL}/auth/v1/admin/users?per_page=1000&page=1`,
+          { headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY } }
+        );
+        const listData = await listRes.json();
+        // Handle both plain-array and { users: [...] } response shapes
+        const userList: Array<{ email: string; id: string }> = Array.isArray(listData)
+          ? listData
+          : (listData?.users ?? []);
+        const found = userList.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+        if (found?.id) {
+          existingAuthUserId = found.id;
+        }
+      }
+
+      if (!existingAuthUserId) {
         return new Response(
           JSON.stringify({ error: "Email already exists in auth but could not be located. Please contact support." }),
           { status: 400, headers: corsHeaders }
@@ -87,7 +112,7 @@ Deno.serve(async (req) => {
       }
 
       // Reset password, re-confirm email, and lift any ban on the existing auth user
-      const updateRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${existing.id}`, {
+      const updateRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${existingAuthUserId}`, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -104,7 +129,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      authUserId = existing.id;
+      authUserId = existingAuthUserId;
     }
 
     // ── Step 3: Upsert the public.users profile ───────────────────────────────
@@ -115,7 +140,7 @@ Deno.serve(async (req) => {
         Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
         apikey: SERVICE_ROLE_KEY,
         "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates",
+        Prefer: "resolution=merge-duplicates,return=representation",
       },
       body: JSON.stringify({
         auth_user_id:    authUserId,
@@ -133,10 +158,16 @@ Deno.serve(async (req) => {
 
     if (!upsertRes.ok) {
       const upsertErr = await upsertRes.json();
-      return new Response(JSON.stringify({ error: upsertErr?.message || "Failed to create user profile" }), { status: 400, headers: corsHeaders });
+      return new Response(
+        JSON.stringify({ error: upsertErr?.message || upsertErr?.details || "Failed to create user profile" }),
+        { status: 400, headers: corsHeaders }
+      );
     }
 
-    return new Response(JSON.stringify({ ok: true, userId: authUserId }), {
+    const upsertData = await upsertRes.json();
+    const savedId = Array.isArray(upsertData) ? upsertData[0]?.id : upsertData?.id;
+
+    return new Response(JSON.stringify({ ok: true, userId: authUserId, profileId: savedId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
