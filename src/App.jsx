@@ -9725,12 +9725,15 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
     setShowForm(true);
   };
   const openEdit = (u) => {
-    setEditUser(u);
+    // Find the live object from _users (u may be a stale reference after loadState replaced _users)
+    const freshU = _users.find(x => x.email === u.email) || u;
+    setUsers([..._users]);
+    setEditUser(freshU);
     setFormError("");
-    const position = getUserPosition(u);
+    const position = getUserPosition(freshU);
     const normalizedPosition = normalizePositionName(position);
-    const moduleRole = POSITION_MODULE_ROLES[normalizedPosition] || getModuleRole(u);
-    setForm({ name:u.name, email:u.email, jobTitle:position, dept:u.dept, password:u.password, supervisorId:u.supervisorId || "", moduleRole });
+    const moduleRole = POSITION_MODULE_ROLES[normalizedPosition] || getModuleRole(freshU);
+    setForm({ name:freshU.name, email:freshU.email, jobTitle:position, dept:freshU.dept, password:freshU.password, supervisorId:freshU.supervisorId || "", moduleRole });
     setShowForm(true);
   };
 
@@ -9751,7 +9754,10 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       _positionRoles[normalizedJobTitle] = derivedRole;
     }
     if (editUser) {
-      Object.assign(editUser, nextForm);
+      // editUser may be a stale reference if loadState/normalizeState replaced _users.
+      // Find the live object in _users by email and update that instead.
+      const freshUser = _users.find(u => u.email === editUser.email) || editUser;
+      Object.assign(freshUser, nextForm);
       syncUsers();
       // Persist the change to Supabase so it survives across sessions/devices.
       const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -11439,6 +11445,7 @@ export default function App() {
   useEffect(() => {
     loadState();
     fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => {
+      saveState();
       refresh();
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session) { setAuthChecked(true); return; }
