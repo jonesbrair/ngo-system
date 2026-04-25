@@ -35,10 +35,13 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Only admins can create users" }), { status: 403, headers: corsHeaders });
     }
 
-    const { email, password, name, role, moduleRole, jobTitle, dept, supervisorId } = await req.json();
+    const { email, password, name, role: rawRole, moduleRole, jobTitle, dept, supervisorId } = await req.json();
     if (!email || !password) {
       return new Response(JSON.stringify({ error: "Email and password required" }), { status: 400, headers: corsHeaders });
     }
+    // "hr_manager" is a frontend-only display role; the DB enum only knows "requester".
+    // HR access is controlled by module_role = "hr", not the workflow role column.
+    const role = rawRole === "hr_manager" ? "requester" : rawRole;
 
     // ── Step 1: Try to create the auth user ──────────────────────────────────
     const createRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {

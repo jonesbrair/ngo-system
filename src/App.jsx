@@ -9757,7 +9757,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
       supabase.from("users").update({
         name:        nextForm.name,
-        role:        nextForm.role,
+        role:        nextForm.role === "hr_manager" ? "requester" : nextForm.role,
         module_role: nextForm.moduleRole,
         job_title:   nextForm.jobTitle,
         department:  nextForm.dept,
