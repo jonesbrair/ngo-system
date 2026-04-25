@@ -13,7 +13,14 @@ async function fetchUsersFromDB() {
   if (!data?.length) { console.log("Supabase users: table is empty"); return; }
   data.forEach(row => {
     const exists = _users.find(u => u.email === row.email);
-    if (!exists) {
+    if (exists) {
+      // Always sync identity and relationship fields from DB so local IDs
+      // match DB-assigned UUIDs and supervisor assignments stay consistent.
+      exists.id           = row.id;
+      exists.supervisorId = row.supervisor_id ?? exists.supervisorId;
+      exists.isActive     = row.is_active ?? true;
+      exists.authUserId   = row.auth_user_id || null;
+    } else {
       _users.push({
         id:           row.id,
         name:         row.name,
@@ -30,7 +37,7 @@ async function fetchUsersFromDB() {
       });
     }
   });
-  console.log("Supabase users merged:", data.length);
+  console.log("Supabase users synced:", data.length);
 }
 
 async function fetchProjectsFromDB() {
@@ -188,6 +195,7 @@ let _projects = [...DEFAULT_PROJECTS];
 const ROLE_LABELS = {
   requester:"Program Officer", supervisor:"Program Manager", accountant:"Accountant",
   finance_manager:"Senior Accountant", payment_accountant:"Payment Officer", procurement_officer:"Procurement Officer", executive_director:"Executive Director", admin:"Administrator",
+  hr_manager:"HR Manager",
 };
 
 // ── Module-level RBAC ─────────────────────────────────────────────────────────
@@ -203,10 +211,16 @@ const MODULE_ROLE_COLORS = {
 
 function inferModuleRole(systemRole) {
   if (systemRole === "admin") return "admin";
+  if (systemRole === "hr_manager") return "hr";
   if (["accountant","finance_manager","payment_accountant","supervisor","executive_director"].includes(systemRole)) return "finance";
   if (systemRole === "procurement_officer") return "procurement";
   return "staff";
 }
+
+// Positions that always force a specific module role regardless of what is saved.
+const POSITION_MODULE_ROLES = {
+  "HR Manager": "hr",
+};
 function getModuleRole(user) {
   return user?.moduleRole || inferModuleRole(user?.role || "requester");
 }
@@ -270,7 +284,7 @@ const DEFAULT_POSITION_ROLES = {
   "Procurement Officer":    "procurement_officer",
   "Executive Director":     "executive_director",
   "System Administrator":   "admin",
-  "HR Manager":             "requester",
+  "HR Manager":             "hr_manager",
 };
 let _positionRoles = { ...DEFAULT_POSITION_ROLES };
 
@@ -748,6 +762,7 @@ function loadState() {
     _positions = Array.isArray(parsed.positions) ? parsed.positions : [...DEFAULT_POSITIONS];
     _deletedPositions = Array.isArray(parsed.deletedPositions) ? parsed.deletedPositions : [];
     _positionRoles = (parsed.positionRoles && typeof parsed.positionRoles === "object") ? { ...DEFAULT_POSITION_ROLES, ...parsed.positionRoles } : { ...DEFAULT_POSITION_ROLES };
+    if (_positionRoles["HR Manager"] === "requester") _positionRoles["HR Manager"] = "hr_manager";
     _positionDashboards = (parsed.positionDashboards && typeof parsed.positionDashboards === "object") ? { ...DEFAULT_POSITION_DASHBOARDS, ...parsed.positionDashboards } : { ...DEFAULT_POSITION_DASHBOARDS };
     _dashboardDelegations = Array.isArray(parsed.dashboardDelegations) ? parsed.dashboardDelegations : [];
     _employees      = Array.isArray(parsed.employees)      ? parsed.employees      : [];
@@ -869,28 +884,36 @@ function normalizeState() {
   _positionRoles = {
     ..._positionRoles,
     "System Administrator": "admin",
+    "HR Manager": "hr_manager",
   };
 
   _positions = getPositionOptions(_users, _positions);
 
-  const supervisorIds = new Set(getSupervisors(_users).map(u => u.id));
+  const allUserIds = new Set(_users.map(u => u.id));
   _users = _users.map(u => {
     const position = normalizePositionName(u.jobTitle) || ROLE_LABELS[u.role] || "Team Member";
     const isReservedAdmin = u.id === "u5" || String(u.email || "").toLowerCase() === "admin@etara.org" || position === "System Administrator";
     const derivedRole = isReservedAdmin ? "admin" : (getPositionAccessRole(position) || u.role || "requester");
-    const fallback = getFallbackSupervisor(u.id, _users);
-    const hasValidSupervisor = u.supervisorId && supervisorIds.has(u.supervisorId) && u.supervisorId !== u.id;
+    // Validate that the stored supervisorId references an actual user and is not self.
+    // Any user (not just Program Managers) can be a supervisor.
+    const hasValidSupervisor = u.supervisorId && allUserIds.has(u.supervisorId) && u.supervisorId !== u.id;
     return {
       ...u,
       eSignature: normalizeSignatureValue(u.eSignature || null),
       role: derivedRole,
-      moduleRole: MODULE_ROLES.includes(u.moduleRole) ? u.moduleRole : inferModuleRole(derivedRole),
+      moduleRole: POSITION_MODULE_ROLES[normalizePositionName(u.jobTitle)] || (MODULE_ROLES.includes(u.moduleRole) ? u.moduleRole : inferModuleRole(derivedRole)),
       jobTitle: position,
       isActive: u.isActive !== false,
       failedLoginAttempts: Number.isFinite(u.failedLoginAttempts) ? u.failedLoginAttempts : 0,
       lockedAt: u.lockedAt || null,
       lastPasswordResetAt: u.lastPasswordResetAt || null,
-      supervisorId: derivedRole === "admin" ? (u.supervisorId || fallback?.id || null) : (hasValidSupervisor ? u.supervisorId : (fallback?.id || null)),
+      // Executive directors have no supervisor. For everyone else, keep the
+      // explicit assignment if valid; only null out if the referenced user
+      // no longer exists. Never silently replace with a fallback — that hides
+      // admin-set assignments behind whoever happens to be first in the list.
+      supervisorId: derivedRole === "executive_director" ? null
+        : hasValidSupervisor ? u.supervisorId
+        : null,
     };
   });
 
@@ -9716,7 +9739,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
     const nextForm = {
       ...form,
       role: derivedRole,
-      moduleRole: MODULE_ROLES.includes(form.moduleRole) ? form.moduleRole : inferModuleRole(derivedRole),
+      moduleRole: POSITION_MODULE_ROLES[normalizedJobTitle] || (MODULE_ROLES.includes(form.moduleRole) ? form.moduleRole : inferModuleRole(derivedRole)),
       jobTitle: normalizedJobTitle,
       supervisorId: derivedRole === "executive_director" ? null : fallbackSupervisorId,
     };
@@ -9727,6 +9750,18 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
     if (editUser) {
       Object.assign(editUser, nextForm);
       syncUsers();
+      // Persist the change to Supabase so it survives across sessions/devices.
+      const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+      supabase.from("users").update({
+        name:        nextForm.name,
+        role:        nextForm.role,
+        module_role: nextForm.moduleRole,
+        job_title:   nextForm.jobTitle,
+        department:  nextForm.dept,
+        supervisor_id: isUUID(nextForm.supervisorId) ? nextForm.supervisorId : null,
+      }).eq("email", editUser.email).then(({ error }) => {
+        if (error) console.warn("Failed to sync user edit to DB:", error.message);
+      });
       showToast(`User updated: ${form.name}`);
       setShowForm(false);
       setEditUser(null);
