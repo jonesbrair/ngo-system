@@ -239,3 +239,63 @@ export async function notifyLeaveSubmitted(application, supervisor) {
     application.employeeEmail || ""
   );
 }
+
+/**
+ * Notify a requester of a status change on their leave application.
+ * @param {object} application – { id, leaveTypeName, startDate, endDate, numDays, employeeName, employeeEmail }
+ * @param {object} requester   – { name, email }
+ * @param {string} approverName
+ * @param {"pending_hr"|"pending_executive_director"|"approved"|"rejected"} newStatus
+ * @param {string} [comment]
+ */
+export async function notifyLeaveStatusUpdate(application, requester, approverName, newStatus, comment = "") {
+  const STATUS_META = {
+    pending_hr:                 { label:"Forwarded to HR",                   color:"#1e40af", bg:"#dbeafe", icon:"→", blurb:"Your leave application has been reviewed by your supervisor and forwarded to HR for the next stage of approval." },
+    pending_executive_director: { label:"Forwarded to Executive Director",   color:"#3730a3", bg:"#e0e7ff", icon:"→", blurb:"Your leave application has been reviewed by HR and forwarded to the Executive Director for final approval." },
+    approved:                   { label:"Fully Approved",                    color:"#065f46", bg:"#d1fae5", icon:"✓", blurb:"Your leave application has been fully approved through all stages and filed in your staff record." },
+    rejected:                   { label:"Rejected",                          color:"#991b1b", bg:"#fee2e2", icon:"✗", blurb:"Your leave application has been reviewed and rejected." },
+  };
+  const meta = STATUS_META[newStatus] || { label:newStatus, color:"#475569", bg:"#f1f5f9", icon:"•", blurb:"Your leave application status has been updated." };
+  const appLink = `${APP_URL}#my_leave`;
+
+  const statusBadge = `<span style="background:${meta.bg};color:${meta.color};padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;">${meta.icon} ${meta.label}</span>`;
+  const commentRow = comment ? infoRow("Comment / Reason", comment) : "";
+
+  const actionNote = newStatus === "rejected"
+    ? `<p style="background:#fff7ed;border-left:4px solid #f97316;padding:12px 16px;color:#9a3412;font-size:13px;border-radius:4px;margin:24px 0;">
+         If you have questions about this decision, please speak with your supervisor or HR.
+       </p>`
+    : newStatus === "approved"
+    ? `<p style="background:#f0fdf4;border-left:4px solid #22c55e;padding:12px 16px;color:#166534;font-size:13px;border-radius:4px;margin:24px 0;">
+         Your approved leave has been filed in your staff record and your leave balance updated.
+       </p>`
+    : `<p style="background:#eff6ff;border-left:4px solid #3b82f6;padding:12px 16px;color:#1e40af;font-size:13px;border-radius:4px;margin:24px 0;">
+         No further action is required from you at this time. You will be notified at each stage.
+       </p>`;
+
+  const body = `
+    ${greeting(requester.name)}
+    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 20px;">${meta.blurb}</p>
+    <p style="margin:0 0 20px;">${statusBadge}</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+      ${infoRow("Application ID", application.id)}
+      ${infoRow("Leave Type",     application.leaveTypeName || application.leaveTypeId || "—")}
+      ${infoRow("Period",         `${formatDate(application.startDate)} – ${formatDate(application.endDate)}`)}
+      ${infoRow("Days",           `${application.numDays} working day${application.numDays !== 1 ? "s" : ""}`)}
+      ${infoRow("Reviewed By",    approverName)}
+      ${infoRow("Date",           formatDate(new Date().toISOString()))}
+      ${commentRow}
+    </table>
+    ${actionNote}
+    ${ctaButton("View My Leave →", appLink)}
+  `;
+
+  await dispatch(
+    requester.email,
+    `[IMS] Leave Update: ${meta.label} — ${application.id}`,
+    emailShell(`Leave Application ${meta.label}`, body),
+    `leave_${newStatus}`,
+    approverName,
+    ""
+  );
+}

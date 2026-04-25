@@ -3,7 +3,7 @@ import ProcurementRequisitionPage from "./ProcurementRequisitionPage";
 import { AppIcon, IconBadge } from "./uiIcons";
 import MessagesModule from "./hr/messaging/MessagesModule";
 import { supabase } from "./lib/supabaseClient";
-import { notifyRequestSubmitted, notifyApprovalAction, notifyLeaveSubmitted } from "./lib/emailService";
+import { notifyRequestSubmitted, notifyApprovalAction, notifyLeaveSubmitted, notifyLeaveStatusUpdate } from "./lib/emailService";
 const inspireLogo = "https://inspireyouthdev.org/wp-content/uploads/2024/10/cropped-Asset-260.png";
 
 // â"€â"€ Identity â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -120,7 +120,14 @@ async function fetchLeaveApplicationsFromDB() {
   if (!data?.length) return;
   data.forEach(row => {
     const exists = _leaveApplications.find(a => a.id === row.id);
-    if (!exists) {
+    if (exists) {
+      // Always sync mutable fields so status changes made on another device propagate here.
+      exists.status      = row.status      || exists.status;
+      exists.approvals   = Array.isArray(row.approvals) ? row.approvals : exists.approvals;
+      exists.approvedAt  = row.approved_at  ?? exists.approvedAt;
+      exists.rejectedAt  = row.rejected_at  ?? exists.rejectedAt;
+      exists.supervisorId = row.supervisor_id ?? exists.supervisorId;
+    } else {
       _leaveApplications.push({
         id:               row.id,
         employeeId:       row.employee_id || "",
@@ -144,7 +151,7 @@ async function fetchLeaveApplicationsFromDB() {
       });
     }
   });
-  console.log("Supabase leave applications merged:", data.length);
+  console.log("Supabase leave applications synced:", data.length);
 }
 
 async function fetchEmployeesFromDB() {
@@ -5397,6 +5404,10 @@ function LeaveApplicationPage({ user, setPage }) {
 function MyLeavePage({ user, setPage }) {
   const empRecord = _employees.find(e => e.email?.toLowerCase() === user.email?.toLowerCase());
   const empId     = empRecord?.id || user.id;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    fetchLeaveApplicationsFromDB().then(() => { saveState(); tick(n => n + 1); });
+  }, []);
 
   const myApps = [..._leaveApplications]
     .filter(a => a.userId === user.id)
@@ -5534,28 +5545,38 @@ function HRLeaveManagement({ user, setPage }) {
 
   const approve = (app) => {
     const action = { userId:user.id, name:user.name, at:new Date().toISOString(), decision:"approved", note:"" };
+    const lt = LEAVE_TYPES.find(l => l.id === app.leaveTypeId);
+    const leaveTypeName = lt?.name || app.leaveTypeId;
+    const appForEmail = { ...app, leaveTypeName };
+    const requesterEmail = app.employeeEmail || _users.find(u => u.id === app.userId)?.email || "";
+    const requesterForEmail = { name: app.employeeName, email: requesterEmail };
+
     if (app.status === "pending_supervisor") {
       app.approvals = [...(app.approvals||[]), { ...action, role:"supervisor" }];
       app.status = "pending_hr";
       _users.filter(u => { const r = getModuleRole(u); return r === "hr" || r === "admin"; })
         .forEach(u => addNotif(u.id, `HR review needed: Leave request ${app.id} from ${app.employeeName} has been approved by the supervisor and is awaiting HR review.`, app.id));
+      addNotif(app.userId, `Leave update: ${app.id} — your supervisor approved your leave. It has been forwarded to HR for review.`, app.id);
+      if (requesterEmail) notifyLeaveStatusUpdate(appForEmail, requesterForEmail, user.name, "pending_hr").catch(e => console.warn("[email] leave status update failed:", e.message));
       showToast(`${app.id} forwarded to HR for review.`);
     } else if (app.status === "pending_hr") {
       app.approvals = [...(app.approvals||[]), { ...action, role:"hr" }];
       app.status    = "pending_executive_director";
       _users.filter(u => u.role === "executive_director")
         .forEach(u => addNotif(u.id, `Executive approval needed: Leave request ${app.id} from ${app.employeeName} is awaiting your final approval.`, app.id));
+      addNotif(app.userId, `Leave update: ${app.id} — HR has approved your leave. It is now awaiting the Executive Director's final approval.`, app.id);
+      if (requesterEmail) notifyLeaveStatusUpdate(appForEmail, requesterForEmail, user.name, "pending_executive_director").catch(e => console.warn("[email] leave status update failed:", e.message));
       showToast(`${app.id} forwarded to the Executive Director for final approval.`);
     } else if (app.status === "pending_executive_director") {
       app.approvals = [...(app.approvals||[]), { ...action, role:"executive_director" }];
       app.status    = "approved";
       app.approvedAt = new Date().toISOString();
-      const lt = LEAVE_TYPES.find(l => l.id === app.leaveTypeId);
       if (lt?.days) deductLeaveBalance(app.employeeId, app.leaveTypeId, app.numDays);
       fileApprovedLeaveIntoStaffRecord(app, user.name);
       addNotif(app.userId, `Leave approved: ${app.id} has been fully approved and filed in your staff record.`, app.id);
       _users.filter(u => { const r = getModuleRole(u); return r === "hr" || r === "admin"; })
         .forEach(u => addNotif(u.id, `Leave approved: ${app.id} for ${app.employeeName} has been finally approved and filed in the staff record.`, app.id));
+      if (requesterEmail) notifyLeaveStatusUpdate(appForEmail, requesterForEmail, user.name, "approved").catch(e => console.warn("[email] leave status update failed:", e.message));
       showToast(`${app.id} approved and filed in ${app.employeeName}'s staff record.`);
     }
     supabase.from("leave_applications").update({
@@ -5579,6 +5600,16 @@ function HRLeaveManagement({ user, setPage }) {
       approvals:   target.approvals,
       rejected_at: target.rejectedAt,
     }).eq("id", target.id).then(({ error }) => { if (error) console.warn("Leave reject sync error:", error.message); });
+    addNotif(target.userId, `Leave rejected: ${target.id} — your leave application has been rejected. ${rejectNote ? `Reason: ${rejectNote}` : "Please speak with your supervisor or HR for details."}`, target.id);
+    const requesterEmail = target.employeeEmail || _users.find(u => u.id === target.userId)?.email || "";
+    if (requesterEmail) {
+      const lt = LEAVE_TYPES.find(l => l.id === target.leaveTypeId);
+      notifyLeaveStatusUpdate(
+        { ...target, leaveTypeName: lt?.name || target.leaveTypeId },
+        { name: target.employeeName, email: requesterEmail },
+        user.name, "rejected", rejectNote
+      ).catch(e => console.warn("[email] leave reject notify failed:", e.message));
+    }
     showToast(`${target.id} rejected.`);
     setRejectTarget(null); setRejectNote(""); sync();
   };
@@ -6114,6 +6145,14 @@ function SystemHome({ setPage, user }) {
   const visibleAnnouncements = getRelevantAnnouncementsForUser(user).slice(0, 3);
   const unreadAnnouncements = getRelevantAnnouncementsForUser(user).filter(item => !item.readBy?.includes(user.id)).length;
 
+  // ── Active Workflows widget data ─────────────────────────────────────────────
+  const pendingLeaveApprovals  = getPendingLeaveApprovalsForUser(user);
+  const pendingFinanceApprovals = getPendingForRole(user.role, _requests, user.id);
+  const pendingAccountabilities = getPendingAccountabilityForRole(user.role, _requests, user.id);
+  const myActiveLeave   = _leaveApplications.filter(a => a.userId === user.id && ["pending_supervisor","pending_hr","pending_executive_director"].includes(a.status));
+  const myActiveFinance = _requests.filter(r => r.requesterId === user.id && r.status && r.status.startsWith("pending") && !["pending_payment_accountant","pending_accountability"].includes(r.status));
+  const hasAnything = pendingLeaveApprovals.length || pendingFinanceApprovals.length || pendingAccountabilities.length || myActiveLeave.length || myActiveFinance.length;
+
   const homeCards = [
     { key:"finance",  icon:"finance", label:"Finance",              sub:"Open the current ERP workflows for requests, approvals, payments, and reports.",                              meta:"Live module",       page:"dashboard",          tone:"navy"  },
     { key:"proc",     icon:"prc",     label:"Procurement",          sub:"Open the procurement workspace, including officer tools where you have position or delegated access.",         meta:"Live module",       page:"procurement",        tone:"amber" },
@@ -6182,6 +6221,83 @@ function SystemHome({ setPage, user }) {
         <div className="page-title">Home</div>
         <div className="page-sub">Choose a system area to continue.</div>
       </div>
+
+      {hasAnything && (
+        <div className="card" style={{ marginBottom:18, border:"1px solid rgba(10,30,61,.12)", background:"linear-gradient(145deg,#f8fafc 0%,#ffffff 100%)" }}>
+          <div style={{ padding:"16px 20px 0" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:14 }}>
+              <div style={{ fontFamily:"var(--serif)", fontSize:18, color:"var(--navy)", fontWeight:800 }}>My Active Workflows</div>
+            </div>
+
+            {/* ── Needs Your Action ── */}
+            {(pendingLeaveApprovals.length > 0 || pendingFinanceApprovals.length > 0 || pendingAccountabilities.length > 0) && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"#b45309", textTransform:"uppercase", letterSpacing:".07em", marginBottom:8 }}>Needs Your Action</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:10 }}>
+                  {pendingLeaveApprovals.length > 0 && (
+                    <button onClick={() => setPage("hr_leave_manage")} style={{ display:"flex", alignItems:"center", gap:10, background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:10, padding:"10px 16px", cursor:"pointer", textAlign:"left", minWidth:180 }}>
+                      <div style={{ width:36, height:36, borderRadius:"50%", background:"#f59e0b22", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                        <span style={{ fontSize:17 }}>📋</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:20, fontWeight:800, color:"#92400e", lineHeight:1 }}>{pendingLeaveApprovals.length}</div>
+                        <div style={{ fontSize:12, color:"#b45309", fontWeight:600 }}>Leave {pendingLeaveApprovals.length === 1 ? "request" : "requests"} to review</div>
+                      </div>
+                    </button>
+                  )}
+                  {(pendingFinanceApprovals.length > 0 || pendingAccountabilities.length > 0) && (
+                    <button onClick={() => setPage("pending_approvals")} style={{ display:"flex", alignItems:"center", gap:10, background:"#eff6ff", border:"1.5px solid #bfdbfe", borderRadius:10, padding:"10px 16px", cursor:"pointer", textAlign:"left", minWidth:180 }}>
+                      <div style={{ width:36, height:36, borderRadius:"50%", background:"#3b82f622", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                        <span style={{ fontSize:17 }}>💼</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:20, fontWeight:800, color:"#1e40af", lineHeight:1 }}>{pendingFinanceApprovals.length + pendingAccountabilities.length}</div>
+                        <div style={{ fontSize:12, color:"#1d4ed8", fontWeight:600 }}>Finance {(pendingFinanceApprovals.length + pendingAccountabilities.length) === 1 ? "item" : "items"} to review</div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── My In-Progress Items ── */}
+            {(myActiveLeave.length > 0 || myActiveFinance.length > 0) && (
+              <div style={{ marginBottom:4 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--g500)", textTransform:"uppercase", letterSpacing:".07em", marginBottom:8 }}>My In-Progress Submissions</div>
+                <div style={{ display:"grid", gap:6 }}>
+                  {myActiveLeave.slice(0,3).map(a => {
+                    const lt = LEAVE_TYPES.find(l => l.id === a.leaveTypeId);
+                    const statusMeta = leaveStatusMeta(a.status);
+                    return (
+                      <button key={a.id} onClick={() => setPage("my_leave")} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", border:"1px solid var(--g100)", borderRadius:8, padding:"10px 14px", cursor:"pointer", textAlign:"left", width:"100%" }}>
+                        <span style={{ fontSize:15 }}>🏖️</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)" }}>{a.id} — {lt?.name || a.leaveTypeId}</div>
+                          <div style={{ fontSize:12, color:"var(--g500)", marginTop:1 }}>
+                            {new Date(a.startDate).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – {new Date(a.endDate).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})} · {a.numDays} {a.numDays === 1 ? "day" : "days"}
+                          </div>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:700, background:statusMeta.bg, color:statusMeta.color, padding:"2px 10px", borderRadius:999, whiteSpace:"nowrap" }}>{statusMeta.label}</span>
+                      </button>
+                    );
+                  })}
+                  {myActiveFinance.slice(0,3).map(r => (
+                    <button key={r.id} onClick={() => setPage("my_requests")} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", border:"1px solid var(--g100)", borderRadius:8, padding:"10px 14px", cursor:"pointer", textAlign:"left", width:"100%" }}>
+                      <span style={{ fontSize:15 }}>📄</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)" }}>{r.id} — {r.title}</div>
+                        <div style={{ fontSize:12, color:"var(--g500)", marginTop:1 }}>UGX {Number(r.amount||0).toLocaleString()}</div>
+                      </div>
+                      <span style={{ fontSize:11, fontWeight:700, background:"#fef3c7", color:"#92400e", padding:"2px 10px", borderRadius:999, whiteSpace:"nowrap" }}>In Progress</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ height:14 }} />
+        </div>
+      )}
 
       {visibleAnnouncements.length > 0 && (
         <div className="card" style={{ marginBottom:18, background:"linear-gradient(145deg,#fffaf0 0%,#ffffff 100%)", border:"1px solid rgba(217,119,6,.14)" }}>
