@@ -462,34 +462,112 @@ function getLeaveStageSummary(application) {
 
 function buildLeaveApprovalDocumentData(application) {
   const leaveType = LEAVE_TYPES.find(item => item.id === application.leaveTypeId)?.name || application.leaveTypeId || "Leave";
-  const approvals = (application.approvals || [])
-    .map(item => `<tr><td style="padding:8px;border:1px solid #dbe3ef;">${item.role || "-"}</td><td style="padding:8px;border:1px solid #dbe3ef;">${item.name || "-"}</td><td style="padding:8px;border:1px solid #dbe3ef;">${new Date(item.at).toLocaleString()}</td><td style="padding:8px;border:1px solid #dbe3ef;">${item.decision || "-"}</td></tr>`)
-    .join("");
-  const html = `
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>${application.id} Leave Approval</title>
-      </head>
-      <body style="font-family:Roboto,Arial,sans-serif;padding:32px;color:#0f172a;">
-        <h1 style="margin:0 0 8px;color:#0f2744;">Approved Leave Form</h1>
-        <p style="margin:0 0 24px;color:#475569;">Reference ${application.id}</p>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Employee</td><td style="padding:8px;border:1px solid #dbe3ef;">${application.employeeName}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Leave Type</td><td style="padding:8px;border:1px solid #dbe3ef;">${leaveType}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Period</td><td style="padding:8px;border:1px solid #dbe3ef;">${application.startDate} to ${application.endDate}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Days</td><td style="padding:8px;border:1px solid #dbe3ef;">${application.numDays}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Delegate</td><td style="padding:8px;border:1px solid #dbe3ef;">${application.delegateTo || "-"}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Reason</td><td style="padding:8px;border:1px solid #dbe3ef;">${application.reason || "-"}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #dbe3ef;font-weight:700;">Approved At</td><td style="padding:8px;border:1px solid #dbe3ef;">${application.approvedAt ? new Date(application.approvedAt).toLocaleString() : "-"}</td></tr>
-        </table>
-        <h2 style="margin:0 0 12px;color:#0f2744;font-size:18px;">Approval Trail</h2>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead><tr><th style="padding:8px;border:1px solid #dbe3ef;text-align:left;background:#eff6ff;">Stage</th><th style="padding:8px;border:1px solid #dbe3ef;text-align:left;background:#eff6ff;">Officer</th><th style="padding:8px;border:1px solid #dbe3ef;text-align:left;background:#eff6ff;">Date</th><th style="padding:8px;border:1px solid #dbe3ef;text-align:left;background:#eff6ff;">Decision</th></tr></thead>
-          <tbody>${approvals}</tbody>
-        </table>
-      </body>
-    </html>`;
+  const fmtD = d => { try { return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"}); } catch { return d || "—"; } };
+  const fmtDT = d => { try { return new Date(d).toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); } catch { return d || "—"; } };
+  const STAGE_LABEL = { supervisor:"Supervisor", hr:"HR Manager", executive_director:"Executive Director" };
+  const approvalRows = (application.approvals || []).map(item => {
+    const isApproved = item.decision === "approved";
+    return `<tr>
+      <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0a1e3d;">${STAGE_LABEL[item.role] || item.role || "—"}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;">${item.name || "—"}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;color:#64748b;">${fmtDT(item.at)}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;">
+        <span style="background:${isApproved?"#d1fae5":"#fee2e2"};color:${isApproved?"#065f46":"#991b1b"};padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;">
+          ${isApproved ? "✓ Approved" : "✗ Rejected"}
+        </span>
+        ${item.note ? `<div style="font-size:12px;color:#64748b;margin-top:4px;">${item.note}</div>` : ""}
+      </td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>${application.id} — Approved Leave Form</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f8fafc;color:#0f172a;padding:0}
+  .page{max-width:720px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10)}
+  .hdr{background:#0a1e3d;padding:28px 36px;display:flex;align-items:center;gap:20px}
+  .hdr-logo{width:52px;height:52px;border-radius:10px;background:#fff;padding:6px;object-fit:contain;flex-shrink:0}
+  .hdr-text .org{color:#fff;font-size:17px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+  .hdr-text .sub{color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin-top:2px}
+  .title-bar{background:#f59e0b;padding:10px 36px;display:flex;align-items:center;justify-content:space-between}
+  .title-bar .ttl{color:#fff;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .title-bar .ref{color:rgba(255,255,255,.85);font-size:12px;font-weight:600}
+  .stamp{display:inline-block;border:3px solid #059669;border-radius:8px;padding:5px 16px;color:#059669;font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;transform:rotate(-2deg)}
+  .body{padding:28px 36px}
+  .section{margin-bottom:24px}
+  .section-lbl{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+  .info-cell{padding:10px 14px;border-bottom:1px solid #e2e8f0}
+  .info-cell:nth-child(odd){background:#f8fafc}
+  .info-lbl{font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+  .info-val{font-size:14px;color:#0f172a;font-weight:600}
+  .approval-table{width:100%;border-collapse:collapse}
+  .approval-table th{padding:10px 14px;text-align:left;background:#f1f5f9;font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #e2e8f0}
+  .footer{background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 36px;display:flex;align-items:center;justify-content:space-between}
+  .footer-note{font-size:11px;color:#94a3b8;line-height:1.6}
+  .print-btn{display:none}
+  @media print{.print-btn{display:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hdr">
+    <img class="hdr-logo" src="https://inspireyouthdev.org/wp-content/uploads/2024/10/cropped-Asset-260.png" alt="IYD Logo" />
+    <div class="hdr-text">
+      <div class="org">Inspire Youth For Development</div>
+      <div class="sub">Inspire Management System — Leave Approval Form</div>
+    </div>
+  </div>
+  <div class="title-bar">
+    <span class="ttl">Approved Leave Form</span>
+    <span class="ref">${application.id}</span>
+  </div>
+  <div class="body">
+    <div class="section" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+      <div>
+        <div style="font-size:22px;font-weight:800;color:#0a1e3d;">${application.employeeName}</div>
+        <div style="font-size:13px;color:#64748b;margin-top:2px;">${application.employeeEmpId || ""}</div>
+      </div>
+      <div class="stamp">Fully Approved</div>
+    </div>
+    <div class="section">
+      <div class="section-lbl">Leave Details</div>
+      <div class="info-grid">
+        <div class="info-cell"><div class="info-lbl">Leave Type</div><div class="info-val">${leaveType}</div></div>
+        <div class="info-cell"><div class="info-lbl">Working Days</div><div class="info-val">${application.numDays} day${application.numDays !== 1 ? "s" : ""}</div></div>
+        <div class="info-cell"><div class="info-lbl">Start Date</div><div class="info-val">${fmtD(application.startDate)}</div></div>
+        <div class="info-cell"><div class="info-lbl">End Date</div><div class="info-val">${fmtD(application.endDate)}</div></div>
+        <div class="info-cell"><div class="info-lbl">Delegated To</div><div class="info-val">${application.delegateTo || "—"}</div></div>
+        <div class="info-cell"><div class="info-lbl">Date Applied</div><div class="info-val">${fmtD(application.appliedAt)}</div></div>
+        <div class="info-cell" style="grid-column:1/-1"><div class="info-lbl">Reason / Justification</div><div class="info-val">${application.reason || "—"}</div></div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-lbl">Approval Chain</div>
+      <table class="approval-table">
+        <thead><tr><th>Stage</th><th>Officer</th><th>Date &amp; Time</th><th>Decision</th></tr></thead>
+        <tbody>${approvalRows}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:24px;padding:14px 18px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;font-size:13px;color:#166534;">
+      This leave application has been approved through all three stages of the approval workflow on <strong>${fmtDT(application.approvedAt)}</strong>.
+      This document serves as official confirmation of approved leave and has been filed in the employee's staff record.
+    </div>
+  </div>
+  <div class="footer">
+    <div class="footer-note">
+      Generated by Inspire Management System · Inspire Youth For Development<br/>
+      Document Reference: ${application.id} · ${fmtDT(new Date().toISOString())}
+    </div>
+    <div class="stamp" style="transform:rotate(1deg);font-size:11px;">IYD Official</div>
+  </div>
+</div>
+</body>
+</html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -5519,6 +5597,7 @@ function HRLeaveManagement({ user, setPage }) {
   const [toast,         setToast]         = useState("");
   const [rejectTarget,  setRejectTarget]  = useState(null);
   const [rejectNote,    setRejectNote]    = useState("");
+  const [showSummary,   setShowSummary]   = useState(false);
 
   // Pull fresh leave data from DB every time the page mounts so cross-device
   // submissions are visible without requiring a full page reload.
@@ -5528,6 +5607,14 @@ function HRLeaveManagement({ user, setPage }) {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(""), 4000); };
   const sync = () => { saveState(); refresh(); };
+
+  const downloadLeaveForm = (app) => {
+    const html = buildLeaveApprovalDocumentData(app);
+    const a = document.createElement("a");
+    a.href = html;
+    a.download = `${app.id}-approved-leave-form.html`;
+    a.click();
+  };
 
   const mr     = getModuleRole(user);
   const isHR   = mr === "hr" || mr === "admin";
@@ -5634,9 +5721,14 @@ function HRLeaveManagement({ user, setPage }) {
           <div className="page-title">Leave Applications</div>
           <div className="page-sub">{allApps.length} total · {pending} pending approval</div>
         </div>
-        <button className="btn btn-amber" onClick={() => setPage("leave_apply")}>
-          <AppButtonIcon name="add" tone="amber" size={13} /> Apply for Leave
-        </button>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <button className="btn btn-ghost" onClick={() => setShowSummary(s => !s)}>
+            <AppButtonIcon name="reports" tone="teal" size={13} /> {showSummary ? "Hide Summary" : "Staff Leave Summary"}
+          </button>
+          <button className="btn btn-amber" onClick={() => setPage("leave_apply")}>
+            <AppButtonIcon name="add" tone="amber" size={13} /> Apply for Leave
+          </button>
+        </div>
       </div>
 
       {toast && <div className="alert alert-green" style={{ marginBottom:14 }}>{toast}</div>}
@@ -5709,9 +5801,14 @@ function HRLeaveManagement({ user, setPage }) {
                           </button>
                           <button className="btn btn-ghost btn-sm" style={{ color:"#dc2626", borderColor:"#fca5a5" }} onClick={() => setRejectTarget(a)}>Reject</button>
                         </div>
+                      ) : a.status === "approved" ? (
+                        <div className="flex gap-2" style={{ flexWrap:"wrap", alignItems:"center" }}>
+                          <span className="text-xs text-gray" style={{ whiteSpace:"nowrap" }}>Approved {fmtDate(a.approvedAt)}</span>
+                          <button className="btn btn-ghost btn-sm" style={{ color:"#0891b2", borderColor:"#a5f3fc", whiteSpace:"nowrap" }} onClick={() => downloadLeaveForm(a)}>⬇ Form</button>
+                        </div>
                       ) : (
                         <span className="text-xs text-gray">
-                          {a.status === "approved" ? `Approved ${fmtDate(a.approvedAt)}` : a.status === "rejected" ? `Rejected ${fmtDate(a.rejectedAt)}` : "—"}
+                          {a.status === "rejected" ? `Rejected ${fmtDate(a.rejectedAt)}` : "—"}
                         </span>
                       )}
                     </td>
@@ -5722,6 +5819,89 @@ function HRLeaveManagement({ user, setPage }) {
           </table>
         </div>
       </div>
+
+      {/* ── Staff Leave Summary widget ─────────────────────────────────────── */}
+      {showSummary && (() => {
+        const trackable = LEAVE_TYPES.filter(lt => lt.days !== null);
+        const staffRows = _users
+          .filter(u => u.isActive !== false && u.role !== "executive_director")
+          .map(u => {
+            const empRec = _employees.find(e => e.email?.toLowerCase() === u.email?.toLowerCase());
+            const empId  = empRec?.id || u.id;
+            return {
+              name:   u.name,
+              dept:   empRec?.department || u.dept || "—",
+              empId,
+              leaveData: trackable.map(lt => {
+                const taken   = _leaveBalances[empId]?.[lt.id] || 0;
+                const balance = lt.days - taken;
+                return { lt, taken, balance };
+              }),
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        return (
+          <div className="card" style={{ marginTop:24 }}>
+            <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--g100)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div>
+                <div style={{ fontFamily:"var(--serif)", fontSize:18, fontWeight:800, color:"var(--navy)" }}>Staff Leave Summary</div>
+                <div style={{ fontSize:13, color:"var(--g500)", marginTop:2 }}>Annual leave allocation, days taken, and remaining balance per staff member.</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowSummary(false)}>Close</button>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Department</th>
+                    {trackable.map(lt => (
+                      <th key={lt.id} colSpan={3} style={{ textAlign:"center", background:"var(--navy-pale)", borderLeft:"2px solid var(--g100)" }}>
+                        {lt.name}
+                        <div style={{ fontSize:10, fontWeight:600, color:"var(--g500)", marginTop:1 }}>({lt.days} days/yr)</div>
+                      </th>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th />
+                    <th />
+                    {trackable.map(lt => (
+                      [
+                        <th key={`${lt.id}-e`} style={{ fontSize:10, background:"#f0fdf4", color:"#065f46", textAlign:"center", borderLeft:"2px solid var(--g100)" }}>Entitlement</th>,
+                        <th key={`${lt.id}-t`} style={{ fontSize:10, background:"#fff7ed", color:"#c2410c", textAlign:"center" }}>Taken</th>,
+                        <th key={`${lt.id}-b`} style={{ fontSize:10, background:"#eff6ff", color:"#1e40af", textAlign:"center" }}>Balance</th>,
+                      ]
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffRows.length === 0 && (
+                    <tr><td colSpan={2 + trackable.length * 3} style={{ textAlign:"center", padding:"28px", color:"var(--g400)" }}>No staff records found.</td></tr>
+                  )}
+                  {staffRows.map(row => (
+                    <tr key={row.empId}>
+                      <td style={{ fontWeight:700 }}>{row.name}</td>
+                      <td style={{ color:"var(--g500)", fontSize:13 }}>{row.dept}</td>
+                      {row.leaveData.map(({ lt, taken, balance }) => (
+                        [
+                          <td key={`${row.empId}-${lt.id}-e`} style={{ textAlign:"center", fontWeight:700, color:"var(--navy)", borderLeft:"2px solid var(--g100)" }}>{lt.days}</td>,
+                          <td key={`${row.empId}-${lt.id}-t`} style={{ textAlign:"center", fontWeight:600, color: taken > 0 ? "#c2410c" : "var(--g400)" }}>{taken}</td>,
+                          <td key={`${row.empId}-${lt.id}-b`} style={{ textAlign:"center", fontWeight:700, color: balance <= 0 ? "#dc2626" : balance <= Math.ceil(lt.days * 0.3) ? "#d97706" : "#059669" }}>{balance}</td>,
+                        ]
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding:"10px 20px", background:"var(--g50)", borderTop:"1px solid var(--g100)", fontSize:11, color:"var(--g500)" }}>
+              Balances update automatically when leave is fully approved through all three stages.
+              Unpaid leave has no annual limit and is excluded from this table.
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Reject modal */}
       {rejectTarget && (
