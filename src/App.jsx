@@ -3292,15 +3292,37 @@ function LoginScreen({ onLogin }) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotErr,   setForgotErr]   = useState("");
+  const [cooldown,    setCooldown]    = useState(0); // seconds remaining before next send
+  const cooldownRef = useRef(null);
+
+  const startCooldown = (seconds = 60) => {
+    setCooldown(seconds);
+    cooldownRef.current = window.setInterval(() => {
+      setCooldown(s => {
+        if (s <= 1) { window.clearInterval(cooldownRef.current); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+  };
 
   const sendResetLink = async () => {
     if (!forgotEmail.trim()) { setForgotErr("Please enter your email address."); return; }
+    if (cooldown > 0) return;
     setForgotLoading(true); setForgotErr("");
     const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
       redirectTo: window.location.origin,
     });
     setForgotLoading(false);
-    if (error) { setForgotErr(error.message); return; }
+    if (error) {
+      const isRateLimit = error.status === 429 || /rate.limit|too many|over_email/i.test(error.message);
+      setForgotErr(isRateLimit
+        ? "Too many reset requests. Please wait a few minutes before trying again."
+        : error.message
+      );
+      if (isRateLimit) startCooldown(120);
+      return;
+    }
+    startCooldown(60);
     setView("sent");
   };
 
@@ -3365,8 +3387,8 @@ function LoginScreen({ onLogin }) {
               <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="Enter your email" autoFocus onKeyDown={e => e.key === "Enter" && sendResetLink()} />
             </div>
           </div>
-          <button className="login-btn" onClick={sendResetLink} disabled={forgotLoading}>
-            {forgotLoading ? "Sending…" : "Send reset link"}
+          <button className="login-btn" onClick={sendResetLink} disabled={forgotLoading || cooldown > 0}>
+            {forgotLoading ? "Sending…" : cooldown > 0 ? `Wait ${cooldown}s before resending` : "Send reset link"}
           </button>
           <div className="login-footer">
             <button className="login-forgot" style={{ fontWeight:400 }} type="button" onClick={() => setView("login")}>← Back to sign in</button>
@@ -3397,7 +3419,10 @@ function LoginScreen({ onLogin }) {
           </div>
           <div style={{ background:"var(--navy-pale)", borderRadius:8, padding:"12px 14px", fontSize:12.5, color:"var(--g600)", marginBottom:20, lineHeight:1.7 }}>
             Didn't receive it? Check your spam folder, or{" "}
-            <button className="login-forgot" style={{ fontSize:12.5 }} type="button" onClick={() => setView("forgot")}>try again</button>.
+            {cooldown > 0
+              ? <span style={{ color:"var(--g400)" }}>resend available in {cooldown}s</span>
+              : <button className="login-forgot" style={{ fontSize:12.5 }} type="button" onClick={() => setView("forgot")}>try again</button>
+            }.
           </div>
           <button className="login-btn" style={{ background:"var(--g100)", color:"var(--navy)", boxShadow:"none" }} onClick={() => setView("login")}>Back to sign in</button>
         </div>
@@ -5158,6 +5183,8 @@ function LeaveApplicationPage({ user, setPage }) {
   const empRecord = _employees.find(e => e.email?.toLowerCase() === user.email?.toLowerCase());
   const empId     = empRecord?.id || user.id;
   const supervisorUser = _users.find(u => u.id === (empRecord?.supervisorId || user.supervisorId));
+  const hrApprover     = _users.find(u => getModuleRole(u) === "hr" && u.isActive !== false);
+  const execDirector   = _users.find(u => u.role === "executive_director" && u.isActive !== false);
   const colleagues = _users.filter(u => u.id !== user.id);
 
   const blank = () => ({ leaveTypeId:"annual", startDate:"", endDate:"", reason:"", delegateTo:"", handoverReport:"" });
@@ -5256,9 +5283,33 @@ function LeaveApplicationPage({ user, setPage }) {
               </select>
             </FormField>
 
-            <FormField label="Approving Supervisor" full>
-              <input value={supervisorUser?.name || "No supervisor assigned"} readOnly />
-            </FormField>
+            {/* Approval chain */}
+            <div style={{ gridColumn:"1/-1" }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"var(--g500)", textTransform:"uppercase", letterSpacing:".05em", marginBottom:10 }}>Approval Chain</div>
+              <div style={{ display:"flex", gap:0, alignItems:"stretch" }}>
+                {[
+                  { step:1, label:"Supervisor",         person:supervisorUser,  fallback:"No supervisor assigned" },
+                  { step:2, label:"HR Review",          person:hrApprover,      fallback:"No HR approver found"   },
+                  { step:3, label:"Executive Director", person:execDirector,    fallback:"No Executive Director"  },
+                ].map(({ step, label, person, fallback }, i, arr) => (
+                  <div key={step} style={{ display:"flex", alignItems:"center", flex:1 }}>
+                    <div style={{ flex:1, background: person ? "var(--navy-pale)" : "var(--g50)", border:"1px solid", borderColor: person ? "var(--navy-light,#3b5998)22" : "var(--g100)", borderRadius: i === 0 ? "8px 0 0 8px" : i === arr.length-1 ? "0 8px 8px 0" : 0, borderLeft: i > 0 ? "none" : undefined, padding:"10px 14px" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <div style={{ width:22, height:22, borderRadius:"50%", background: person ? "var(--navy)" : "var(--g200)", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, flexShrink:0 }}>{step}</div>
+                        <div>
+                          <div style={{ fontSize:11, color:"var(--g400)", fontWeight:600, textTransform:"uppercase", letterSpacing:".04em" }}>{label}</div>
+                          <div style={{ fontSize:13, fontWeight:700, color: person ? "var(--navy)" : "var(--g400)" }}>{person?.name || fallback}</div>
+                          {person && <div style={{ fontSize:11, color:"var(--g400)", marginTop:1 }}>{getUserPosition(person)}</div>}
+                        </div>
+                      </div>
+                    </div>
+                    {i < arr.length - 1 && (
+                      <div style={{ width:20, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--g300)", fontSize:16, zIndex:1, margin:"0 -1px" }}>›</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Balance indicator */}
             {selLT?.days && (
