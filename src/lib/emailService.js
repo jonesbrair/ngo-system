@@ -201,3 +201,41 @@ export async function notifyApprovalAction(request, requester, approver, action,
     approver.email || ""
   );
 }
+
+/**
+ * Notify a supervisor that a new leave application needs their review.
+ * @param {object} application – { id, leaveTypeName, startDate, endDate, numDays, reason, appliedAt, employeeName, employeeEmail }
+ * @param {object} supervisor  – { name, email }
+ */
+export async function notifyLeaveSubmitted(application, supervisor) {
+  const appLink = `${APP_URL}#hr_leave_manage`;
+
+  const body = `
+    ${greeting(supervisor.name)}
+    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 24px;">
+      A leave application has been submitted by a member of your team and is awaiting your review.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+      ${infoRow("Application ID", application.id)}
+      ${infoRow("Employee",       application.employeeName)}
+      ${infoRow("Leave Type",     application.leaveTypeName || application.leaveTypeId || "—")}
+      ${infoRow("Period",         `${formatDate(application.startDate)} – ${formatDate(application.endDate)}`)}
+      ${infoRow("Days",           `${application.numDays} working day${application.numDays !== 1 ? "s" : ""}`)}
+      ${infoRow("Applied On",     formatDate(application.appliedAt))}
+      ${application.reason ? infoRow("Reason", application.reason) : ""}
+    </table>
+    ${ctaButton("Review Leave Application →", appLink)}
+    <p style="color:#94a3b8;font-size:12px;text-align:center;margin:8px 0 0;">
+      Log in to the Inspire Management System to approve or reject this application.
+    </p>
+  `;
+
+  await dispatch(
+    supervisor.email,
+    `[IMS] Leave Approval Needed: ${application.id} — ${application.employeeName}`,
+    emailShell("Leave Application Awaiting Your Approval", body),
+    "leave_submitted",
+    application.employeeName,
+    application.employeeEmail || ""
+  );
+}

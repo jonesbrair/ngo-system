@@ -3,7 +3,7 @@ import ProcurementRequisitionPage from "./ProcurementRequisitionPage";
 import { AppIcon, IconBadge } from "./uiIcons";
 import MessagesModule from "./hr/messaging/MessagesModule";
 import { supabase } from "./lib/supabaseClient";
-import { notifyRequestSubmitted, notifyApprovalAction } from "./lib/emailService";
+import { notifyRequestSubmitted, notifyApprovalAction, notifyLeaveSubmitted } from "./lib/emailService";
 const inspireLogo = "https://inspireyouthdev.org/wp-content/uploads/2024/10/cropped-Asset-260.png";
 
 // â"€â"€ Identity â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -419,7 +419,9 @@ function getPendingLeaveApprovalsForUser(user) {
   const moduleRole = getModuleRole(user);
   const isHR = moduleRole === "hr" || moduleRole === "admin";
   return _leaveApplications.filter(app => {
-    if (app.status === "pending_supervisor") return app.supervisorId === user.id;
+    if (app.status === "pending_supervisor")
+      return app.supervisorId === user.id ||
+             (app.supervisorId == null && user.role === "supervisor");
     if (app.status === "pending_hr") return isHR;
     if (app.status === "pending_executive_director") return user.role === "executive_director" || moduleRole === "admin";
     return false;
@@ -5084,6 +5086,10 @@ function LeaveBalanceBar({ empId, ltId }) {
 
 // ── Leave Home ────────────────────────────────────────────────────────────────
 function HRLeaveHome({ setPage, user }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    fetchLeaveApplicationsFromDB().then(() => { saveState(); tick(n => n + 1); });
+  }, []);
   const pending = _leaveApplications.filter(a => ["pending_supervisor","pending_hr","pending_executive_director"].includes(a.status)).length;
   const now = new Date();
   const todayIso = toIsoDateValue(now);
@@ -5182,7 +5188,10 @@ function HRLeaveHome({ setPage, user }) {
 function LeaveApplicationPage({ user, setPage }) {
   const empRecord = _employees.find(e => e.email?.toLowerCase() === user.email?.toLowerCase());
   const empId     = empRecord?.id || user.id;
-  const supervisorUser = _users.find(u => u.id === (empRecord?.supervisorId || user.supervisorId));
+  // Try ID match first, then fall back to same-dept supervisor so the form always shows someone
+  const supervisorUser =
+    _users.find(u => u.id === (empRecord?.supervisorId || user.supervisorId)) ||
+    _users.find(u => u.role === "supervisor" && u.dept === user.dept && u.id !== user.id && u.isActive !== false);
   const hrApprover     = _users.find(u => getModuleRole(u) === "hr" && u.isActive !== false);
   const execDirector   = _users.find(u => u.role === "executive_director" && u.isActive !== false);
   const colleagues = _users.filter(u => u.id !== user.id);
@@ -5237,6 +5246,12 @@ function LeaveApplicationPage({ user, setPage }) {
     }).then(({ error }) => { if (error) console.warn("Leave insert error:", error.message); });
     if (supervisorUser) {
       addNotif(supervisorUser.id, `Leave approval needed: ${id} from ${user.name} has been submitted and is awaiting your review.`, id);
+      if (supervisorUser.email) {
+        notifyLeaveSubmitted(
+          { ...newApp, leaveTypeName: selLT?.name || newApp.leaveTypeId },
+          { name: supervisorUser.name, email: supervisorUser.email }
+        ).catch(e => console.warn("[email] leave notify failed:", e.message));
+      }
     }
     saveState();
     showToast(`Application ${id} submitted — awaiting supervisor approval.`);
@@ -5494,6 +5509,12 @@ function HRLeaveManagement({ user, setPage }) {
   const [rejectTarget,  setRejectTarget]  = useState(null);
   const [rejectNote,    setRejectNote]    = useState("");
 
+  // Pull fresh leave data from DB every time the page mounts so cross-device
+  // submissions are visible without requiring a full page reload.
+  useEffect(() => {
+    fetchLeaveApplicationsFromDB().then(() => { saveState(); refresh(); });
+  }, []);
+
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(""), 4000); };
   const sync = () => { saveState(); refresh(); };
 
@@ -5502,7 +5523,10 @@ function HRLeaveManagement({ user, setPage }) {
   const isExecutive = user?.role === "executive_director" || mr === "admin";
 
   const canAct = (app) => {
-    if (app.status === "pending_supervisor") return app.supervisorId === user.id || isHR;
+    if (app.status === "pending_supervisor")
+      return app.supervisorId === user.id ||
+             (app.supervisorId == null && user.role === "supervisor") ||
+             isHR;
     if (app.status === "pending_hr")         return isHR;
     if (app.status === "pending_executive_director") return isExecutive;
     return false;
@@ -11711,6 +11735,17 @@ export default function App() {
     const timer = window.setInterval(() => {
       refresh();
     }, 5000);
+    return () => window.clearInterval(timer);
+  }, [user, refresh]);
+  // Re-fetch leave applications from DB every 30 s so supervisors see
+  // submissions that arrived on other devices without a full page reload.
+  useEffect(() => {
+    if (!user) return undefined;
+    const timer = window.setInterval(async () => {
+      await fetchLeaveApplicationsFromDB();
+      saveState();
+      refresh();
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [user, refresh]);
   useEffect(() => {
