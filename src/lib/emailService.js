@@ -299,3 +299,149 @@ export async function notifyLeaveStatusUpdate(application, requester, approverNa
     ""
   );
 }
+
+// ── Finance request emails ────────────────────────────────────────────────────
+
+const FINANCE_STAGE_META = {
+  pending_accountant:          { label:"Forwarded to Accountant",           color:"#1e40af", bg:"#dbeafe", icon:"→", blurb:"Your request has been reviewed by your supervisor and forwarded to the Accountant for the next stage of approval." },
+  pending_finance:             { label:"Forwarded to Senior Accountant",    color:"#3730a3", bg:"#e0e7ff", icon:"→", blurb:"Your request has been reviewed by the Accountant and forwarded to the Senior Accountant for further review." },
+  pending_executive_director:  { label:"Forwarded to Executive Director",   color:"#7c3aed", bg:"#ede9fe", icon:"→", blurb:"Your request has been reviewed by the Senior Accountant and forwarded to the Executive Director for final approval." },
+  approved:                    { label:"Fully Approved — Awaiting Payment", color:"#065f46", bg:"#d1fae5", icon:"✓", blurb:"Your request has been fully approved and forwarded to the Payment Officer for processing." },
+  rejected_supervisor:         { label:"Rejected by Program Manager",       color:"#991b1b", bg:"#fee2e2", icon:"✗", blurb:"Your finance request has been reviewed and rejected by the Program Manager." },
+  rejected_accountant:         { label:"Rejected by Accountant",            color:"#991b1b", bg:"#fee2e2", icon:"✗", blurb:"Your finance request has been reviewed and rejected by the Accountant." },
+  rejected_finance:            { label:"Rejected by Senior Accountant",     color:"#991b1b", bg:"#fee2e2", icon:"✗", blurb:"Your finance request has been reviewed and rejected by the Senior Accountant." },
+  rejected_executive_director: { label:"Rejected by Executive Director",    color:"#991b1b", bg:"#fee2e2", icon:"✗", blurb:"Your finance request has been reviewed and rejected by the Executive Director." },
+};
+
+/**
+ * Notify the requester of a status change on their finance request.
+ * @param {object} request   – { id, title, amount, requesterName }
+ * @param {object} requester – { name, email }
+ * @param {string} approverName
+ * @param {string} newStatus – one of the FINANCE_STAGE_META keys
+ * @param {string} [comment]
+ */
+export async function notifyFinanceStageUpdate(request, requester, approverName, newStatus, comment = "") {
+  const meta = FINANCE_STAGE_META[newStatus] || { label:newStatus, color:"#475569", bg:"#f1f5f9", icon:"•", blurb:"Your finance request status has been updated." };
+  const isRejected = newStatus.startsWith("rejected_");
+  const appLink = `${APP_URL}#my_requests`;
+
+  const statusBadge = `<span style="background:${meta.bg};color:${meta.color};padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;">${meta.icon} ${meta.label}</span>`;
+  const commentRow  = comment ? infoRow(isRejected ? "Reason" : "Comment", comment) : "";
+
+  const actionNote = isRejected
+    ? `<p style="background:#fff7ed;border-left:4px solid #f97316;padding:12px 16px;color:#9a3412;font-size:13px;border-radius:4px;margin:24px 0;">
+         You may edit and resubmit your request after addressing the feedback above.
+       </p>`
+    : newStatus === "approved"
+    ? `<p style="background:#f0fdf4;border-left:4px solid #22c55e;padding:12px 16px;color:#166534;font-size:13px;border-radius:4px;margin:24px 0;">
+         Your request has been fully approved and sent for payment processing. You will be notified when payment is made.
+       </p>`
+    : `<p style="background:#eff6ff;border-left:4px solid #3b82f6;padding:12px 16px;color:#1e40af;font-size:13px;border-radius:4px;margin:24px 0;">
+         No further action is required from you at this time. You will be notified at each stage.
+       </p>`;
+
+  const body = `
+    ${greeting(requester.name)}
+    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 20px;">${meta.blurb}</p>
+    <p style="margin:0 0 20px;">${statusBadge}</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+      ${infoRow("Request ID",  request.id)}
+      ${infoRow("Title",       request.title)}
+      ${infoRow("Amount",      formatAmount(request.amount))}
+      ${infoRow("Reviewed By", approverName)}
+      ${infoRow("Date",        formatDate(new Date().toISOString()))}
+      ${commentRow}
+    </table>
+    ${actionNote}
+    ${ctaButton("View My Requests →", appLink)}
+  `;
+
+  await dispatch(
+    requester.email,
+    `[IMS] Finance Update: ${meta.label} — ${request.id}`,
+    emailShell(`Finance Request: ${meta.label}`, body),
+    `finance_${newStatus}`,
+    approverName,
+    ""
+  );
+}
+
+/**
+ * Notify the next approver in the finance workflow that a request is ready for their review.
+ * @param {object} request      – { id, title, amount, requesterName, requesterEmail? }
+ * @param {object} nextApprover – { name, email }
+ * @param {string} fromApproverName
+ */
+export async function notifyNextApproverFinance(request, nextApprover, fromApproverName) {
+  if (!nextApprover?.email) return;
+  const appLink = `${APP_URL}#pending_approvals`;
+
+  const body = `
+    ${greeting(nextApprover.name)}
+    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 24px;">
+      A finance request has been forwarded to you for review and approval by <strong>${fromApproverName}</strong>.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+      ${infoRow("Request ID",   request.id)}
+      ${infoRow("Title",        request.title)}
+      ${infoRow("Requested By", request.requesterName)}
+      ${infoRow("Amount",       formatAmount(request.amount))}
+      ${infoRow("Forwarded By", fromApproverName)}
+      ${infoRow("Date",         formatDate(new Date().toISOString()))}
+    </table>
+    ${ctaButton("Review Request →", appLink)}
+    <p style="color:#94a3b8;font-size:12px;text-align:center;margin:8px 0 0;">
+      Log in to the Inspire Management System to approve or reject this request.
+    </p>
+  `;
+
+  await dispatch(
+    nextApprover.email,
+    `[IMS] Action Required: Finance Request Awaiting Your Approval — ${request.id}`,
+    emailShell("Finance Request Awaiting Your Approval", body),
+    "finance_next_approver",
+    fromApproverName,
+    request.requesterEmail || ""
+  );
+}
+
+/**
+ * Notify the requester that their request has been paid.
+ * @param {object} request       – { id, title, amount }
+ * @param {object} requester     – { name, email }
+ * @param {string} transactionId
+ * @param {string} paymentDate   – YYYY-MM-DD
+ */
+export async function notifyPaymentReceived(request, requester, transactionId, paymentDate) {
+  if (!requester?.email) return;
+  const appLink = `${APP_URL}#my_requests`;
+
+  const body = `
+    ${greeting(requester.name)}
+    <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 24px;">
+      Payment has been processed for your finance request. Please log in to submit your accountability report.
+    </p>
+    <p style="margin:0 0 20px;"><span style="background:#d1fae5;color:#065f46;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;">✓ Payment Processed</span></p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+      ${infoRow("Request ID",     request.id)}
+      ${infoRow("Title",          request.title)}
+      ${infoRow("Amount Paid",    formatAmount(request.amount))}
+      ${infoRow("Transaction ID", transactionId || "—")}
+      ${infoRow("Payment Date",   formatDate(paymentDate || new Date().toISOString()))}
+    </table>
+    <p style="background:#eff6ff;border-left:4px solid #3b82f6;padding:12px 16px;color:#1e40af;font-size:13px;border-radius:4px;margin:24px 0;">
+      You are now required to submit your accountability report with receipts and activity documentation within the stipulated period.
+    </p>
+    ${ctaButton("Submit Accountability →", appLink)}
+  `;
+
+  await dispatch(
+    requester.email,
+    `[IMS] Payment Received — ${request.id}: ${request.title}`,
+    emailShell("Payment Processed — Accountability Required", body),
+    "finance_payment",
+    "Inspire Management System",
+    ""
+  );
+}

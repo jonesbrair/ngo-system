@@ -3,7 +3,7 @@ import ProcurementRequisitionPage from "./ProcurementRequisitionPage";
 import { AppIcon, IconBadge } from "./uiIcons";
 import MessagesModule from "./hr/messaging/MessagesModule";
 import { supabase } from "./lib/supabaseClient";
-import { notifyRequestSubmitted, notifyApprovalAction, notifyLeaveSubmitted, notifyLeaveStatusUpdate } from "./lib/emailService";
+import { notifyRequestSubmitted, notifyApprovalAction, notifyLeaveSubmitted, notifyLeaveStatusUpdate, notifyFinanceStageUpdate, notifyNextApproverFinance, notifyPaymentReceived } from "./lib/emailService";
 const inspireLogo = "https://inspireyouthdev.org/wp-content/uploads/2024/10/cropped-Asset-260.png";
 
 // â"€â"€ Identity â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -72,7 +72,25 @@ async function fetchRequestsFromDB() {
   const projectMap = new Map(_projects.map(p => [p.id, p]));
   data.forEach(row => {
     const exists = _requests.find(r => r.id === row.id || r.id === row.request_number);
-    if (exists) return;
+    if (exists) {
+      exists.status              = row.status              || exists.status;
+      exists.supervisorId        = (row.supporting_docs?.supervisorId) ?? exists.supervisorId;
+      exists.supervisorName      = (row.supporting_docs?.supervisorName) || exists.supervisorName;
+      exists.lastRejectionReason = (row.supporting_docs?.lastRejectionReason) ?? exists.lastRejectionReason;
+      if (Array.isArray(row.request_approvals) && row.request_approvals.length > exists.approvals.length) {
+        const userMap2 = new Map(_users.map(u => [u.id, u]));
+        exists.approvals = row.request_approvals.map(a => ({
+          userId:   a.approver_id,
+          role:     a.stage,
+          decision: a.action,
+          note:     a.comment || "",
+          at:       a.acted_at,
+          stage:    a.stage,
+          name:     userMap2.get(a.approver_id)?.name || "",
+        }));
+      }
+      return;
+    }
     const requester = userMap.get(row.requester_id);
     const project   = projectMap.get(row.project_id);
     const activity  = project?.activities?.find(a => a.id === row.activity_id);
@@ -2202,7 +2220,8 @@ function getPendingForRole(role, requests, userId=null) {
   return requests.filter(r => {
     const matches = r.status === s || (s === "approved" && r.status === "pending_payment_accountant");
     if (!matches) return false;
-    if (role === "supervisor" && userId) return r.supervisorId === userId;
+    if (role === "supervisor" && userId)
+      return r.supervisorId === userId || r.supervisorId == null;
     return true;
   });
 }
@@ -11749,10 +11768,37 @@ export default function App() {
 
   // Centralised handlers â€" all state mutations flow through here
   const handleApprove = useCallback((r) => {
+    const prevStatus = r.status;
     approveRequest(r, user);
     syncState();
     const requester = _users.find(u => u.id === r.requesterId);
-    if (requester?.email) notifyApprovalAction(r, requester, user, "approved", "").catch(e => console.warn("[email]", e.message));
+    // Email requester with stage-specific context
+    if (requester?.email) {
+      notifyFinanceStageUpdate(
+        { id: r.id, title: r.title, amount: r.amount, requesterName: r.requesterName },
+        { name: requester.name, email: requester.email },
+        user.name,
+        r.status
+      ).catch(e => console.warn("[email] finance stage:", e.message));
+    }
+    // Email the next approver in the chain
+    const nextRoleMap = {
+      pending_accountant:         "accountant",
+      pending_finance:            "finance_manager",
+      pending_executive_director: "executive_director",
+      approved:                   "payment_accountant",
+    };
+    const nextRole = nextRoleMap[r.status];
+    if (nextRole) {
+      const nextApprover = _users.find(u => u.role === nextRole && u.isActive !== false);
+      if (nextApprover?.email) {
+        notifyNextApproverFinance(
+          { id: r.id, title: r.title, amount: r.amount, requesterName: r.requesterName, requesterEmail: requester?.email },
+          { name: nextApprover.name, email: nextApprover.email },
+          user.name
+        ).catch(e => console.warn("[email] next approver:", e.message));
+      }
+    }
     const newApproval = r.approvals[r.approvals.length - 1];
     supabase.from("requests").update({ status: r.status }).eq("request_number", r.id).select("id").single()
       .then(({ data, error }) => {
@@ -11771,7 +11817,15 @@ export default function App() {
     rejectRequest(r, user, reason);
     syncState();
     const requester = _users.find(u => u.id === r.requesterId);
-    if (requester?.email) notifyApprovalAction(r, requester, user, "rejected", reason).catch(e => console.warn("[email]", e.message));
+    if (requester?.email) {
+      notifyFinanceStageUpdate(
+        { id: r.id, title: r.title, amount: r.amount, requesterName: r.requesterName },
+        { name: requester.name, email: requester.email },
+        user.name,
+        r.status,
+        reason
+      ).catch(e => console.warn("[email] finance reject:", e.message));
+    }
     const newApproval = r.approvals[r.approvals.length - 1];
     supabase.from("requests").update({ status: r.status, supporting_docs: { ...r.supporting_docs, lastRejectionReason: reason } }).eq("request_number", r.id).select("id").single()
       .then(({ data, error }) => {
@@ -11792,6 +11846,15 @@ export default function App() {
       syncState();
       supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
         .then(({ error }) => { if (error) console.warn("Could not update payment status:", error.message); });
+      const requester = _users.find(u => u.id === r.requesterId);
+      if (requester?.email) {
+        notifyPaymentReceived(
+          { id: r.id, title: r.title, amount: r.amount },
+          { name: requester.name, email: requester.email },
+          ref,
+          date
+        ).catch(e => console.warn("[email] payment notify:", e.message));
+      }
     }
     return result;
   }, [user, syncState]);
