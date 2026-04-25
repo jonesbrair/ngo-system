@@ -9727,7 +9727,10 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
   const openEdit = (u) => {
     setEditUser(u);
     setFormError("");
-    setForm({ name:u.name, email:u.email, jobTitle:getUserPosition(u), dept:u.dept, password:u.password, supervisorId:u.supervisorId || "", moduleRole:getModuleRole(u) });
+    const position = getUserPosition(u);
+    const normalizedPosition = normalizePositionName(position);
+    const moduleRole = POSITION_MODULE_ROLES[normalizedPosition] || getModuleRole(u);
+    setForm({ name:u.name, email:u.email, jobTitle:position, dept:u.dept, password:u.password, supervisorId:u.supervisorId || "", moduleRole });
     setShowForm(true);
   };
 
@@ -10395,7 +10398,13 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
               </select>
             </FormField>
             <FormField label="Position / Job Title">
-              <select value={form.jobTitle} onChange={e => setF("jobTitle", e.target.value)}>
+              <select value={form.jobTitle} onChange={e => {
+                const title = e.target.value;
+                const normalizedTitle = normalizePositionName(title);
+                const derivedRole = getPositionAccessRole(normalizedTitle);
+                const derivedModuleRole = POSITION_MODULE_ROLES[normalizedTitle] || inferModuleRole(derivedRole);
+                setForm(f => ({ ...f, jobTitle: title, moduleRole: derivedModuleRole }));
+              }}>
                 <option value="">— Select position —</option>
                 {positions.map(p => <option key={p} value={p}>{p}</option>)}
                 {form.jobTitle && !positions.includes(form.jobTitle) && (
@@ -10404,7 +10413,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
               </select>
             </FormField>
             <FormField label="Workflow Access Role" hint="Determines approval chain role — auto-derived from position.">
-              <input value={ROLE_LABELS[getPositionAccessRole(form.jobTitle)] || ROLE_LABELS.requester} readOnly style={{ background:"var(--g50)", color:"var(--g500)" }} />
+              <input value={ROLE_LABELS[getPositionAccessRole(normalizePositionName(form.jobTitle))] || ROLE_LABELS.requester} readOnly style={{ background:"var(--g50)", color:"var(--g500)" }} />
             </FormField>
             <FormField label="Department">
               <select value={form.dept} onChange={e=>setF("dept",e.target.value)}>
