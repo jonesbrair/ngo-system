@@ -9715,7 +9715,7 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       role: derivedRole,
       moduleRole: MODULE_ROLES.includes(form.moduleRole) ? form.moduleRole : inferModuleRole(derivedRole),
       jobTitle: normalizedJobTitle,
-      supervisorId: fallbackSupervisorId,
+      supervisorId: derivedRole === "executive_director" ? null : fallbackSupervisorId,
     };
     if (!_positions.some(position => position.toLowerCase() === normalizedJobTitle.toLowerCase())) {
       _positions.push(normalizedJobTitle);
@@ -10365,12 +10365,14 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </FormField>
-            <FormField label="Reports To">
-              <select value={form.supervisorId} onChange={e=>setF("supervisorId",e.target.value)}>
-                <option value="">Select Manager</option>
-                {managers.map(u => <option key={u.id} value={u.id}>{u.name} · {u.jobTitle || ROLE_LABELS[u.role]}</option>)}
-              </select>
-            </FormField>
+            {getPositionAccessRole(form.jobTitle) !== "executive_director" && (
+              <FormField label="Reports To">
+                <select value={form.supervisorId} onChange={e=>setF("supervisorId",e.target.value)}>
+                  <option value="">Select Manager</option>
+                  {managers.map(u => <option key={u.id} value={u.id}>{u.name} · {u.jobTitle || ROLE_LABELS[u.role]}</option>)}
+                </select>
+              </FormField>
+            )}
             {!editUser && (
               <FormField label="Password" full>
                 <div style={{ display:"flex", gap:8 }}>
