@@ -9754,13 +9754,21 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
       _positionRoles[normalizedJobTitle] = derivedRole;
     }
     if (editUser) {
-      // editUser may be a stale reference if loadState/normalizeState replaced _users.
-      // Find the live object in _users by email and update that instead.
+      const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+      // Update the live _users object so future normalizeState calls see the new data.
       const freshUser = _users.find(u => u.email === editUser.email) || editUser;
       Object.assign(freshUser, nextForm);
-      syncUsers();
-      // Persist the change to Supabase so it survives across sessions/devices.
-      const isUUID = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+      // Directly patch React state without going through normalizeState (which may null supervisorId
+      // when local IDs differ from DB IDs). This guarantees the UI reflects the save immediately.
+      setUsers(prev => prev.map(u =>
+        u.email === editUser.email ? { ...u, ...nextForm } : u
+      ));
+      saveState();
+      onSystemChange();
+      showToast(`User updated: ${form.name}`);
+      setShowForm(false);
+      setEditUser(null);
+      // Persist to Supabase, then re-fetch from DB so IDs stay consistent.
       supabase.from("users").update({
         name:        nextForm.name,
         role:        nextForm.role === "hr_manager" ? "requester" : nextForm.role,
@@ -9770,10 +9778,11 @@ function UserManagement({ currentUserId=null, onSystemChange=()=>{} }) {
         supervisor_id: isUUID(nextForm.supervisorId) ? nextForm.supervisorId : null,
       }).eq("email", editUser.email).then(({ error }) => {
         if (error) console.warn("Failed to sync user edit to DB:", error.message);
-      });
-      showToast(`User updated: ${form.name}`);
-      setShowForm(false);
-      setEditUser(null);
+        return fetchUsersFromDB();
+      }).then(() => {
+        saveState();
+        setUsers([..._users]);
+      }).catch(err => console.warn("Post-edit DB re-sync failed:", err));
       return;
     }
     if (!form.password?.trim()) { setFormError("Password is required."); return; }
