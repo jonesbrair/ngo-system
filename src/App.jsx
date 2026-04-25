@@ -3198,12 +3198,111 @@ function FileUpload({ value, onChange, emptyTitle="Attach Concept Note Document"
 }
 
 // â"€â"€ Login Screen â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-function LoginScreen({ onLogin }) {
-  const [email,    setEmail]    = useState("");
-  const [pass,     setPass]     = useState("");
-  const [err,      setErr]      = useState("");
-  const [remember, setRemember] = useState(false);
+function PasswordResetScreen({ onDone }) {
+  const [newPass,  setNewPass]  = useState("");
+  const [confirm,  setConfirm]  = useState("");
   const [showPass, setShowPass] = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [err,      setErr]      = useState("");
+  const [success,  setSuccess]  = useState(false);
+
+  const handleReset = async () => {
+    if (!newPass.trim())           { setErr("Please enter a new password."); return; }
+    if (newPass.length < 6)        { setErr("Password must be at least 6 characters."); return; }
+    if (newPass !== confirm)       { setErr("Passwords do not match."); return; }
+    setLoading(true); setErr("");
+    const { error } = await supabase.auth.updateUser({ password: newPass });
+    setLoading(false);
+    if (error) { setErr(error.message); return; }
+    setSuccess(true);
+    await supabase.auth.signOut();
+    setTimeout(onDone, 2500);
+  };
+
+  return (
+    <div className="login-screen">
+      <div className="login-left">
+        <div className="login-left-bg" />
+        <div className="login-left-overlay" />
+        <div className="login-left-content">
+          <div className="login-left-logo"><img src={inspireLogo} alt="logo" /></div>
+          <div className="login-left-appname">INSPIRE YOUTH FOR DEVELOPMENT (IYD)</div>
+          <div className="login-left-erp">Inspire Management System (IMS)</div>
+        </div>
+      </div>
+      <div className="login-right">
+        <div className="login-card">
+          <div className="login-logo-mark"><img src={inspireLogo} alt="logo" /></div>
+          {success ? (
+            <>
+              <div className="login-heading" style={{ fontSize:21 }}>Password updated</div>
+              <div className="login-sub-text" style={{ marginBottom:24 }}>Your password has been changed. Redirecting you to sign in…</div>
+              <div style={{ textAlign:"center", fontSize:36 }}>✓</div>
+            </>
+          ) : (
+            <>
+              <div className="login-heading" style={{ fontSize:21 }}>Set new password</div>
+              <div className="login-sub-text">Choose a strong password for your account.</div>
+              {err && <div className="alert alert-red" style={{ marginBottom:14 }}>{err}</div>}
+              <div className="form-group" style={{ marginBottom:14 }}>
+                <label>New password</label>
+                <div className="login-input-wrap">
+                  <span className="login-input-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  </span>
+                  <input type={showPass ? "text" : "password"} value={newPass} onChange={e => setNewPass(e.target.value)} placeholder="New password" style={{ paddingRight:40 }} onKeyDown={e => e.key === "Enter" && handleReset()} />
+                  <button type="button" className="login-input-eye" onClick={() => setShowPass(v => !v)}>
+                    {showPass
+                      ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                  </button>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom:20 }}>
+                <label>Confirm new password</label>
+                <div className="login-input-wrap">
+                  <span className="login-input-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  </span>
+                  <input type={showPass ? "text" : "password"} value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Confirm password" onKeyDown={e => e.key === "Enter" && handleReset()} />
+                </div>
+              </div>
+              <button className="login-btn" onClick={handleReset} disabled={loading}>
+                {loading ? "Updating…" : "Set new password"}
+              </button>
+              <div className="login-footer">
+                <button className="login-forgot" style={{ fontWeight:400 }} type="button" onClick={onDone}>Back to sign in</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [email,       setEmail]       = useState("");
+  const [pass,        setPass]        = useState("");
+  const [err,         setErr]         = useState("");
+  const [remember,    setRemember]    = useState(false);
+  const [showPass,    setShowPass]    = useState(false);
+  const [view,        setView]        = useState("login"); // "login" | "forgot" | "sent"
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotErr,   setForgotErr]   = useState("");
+
+  const sendResetLink = async () => {
+    if (!forgotEmail.trim()) { setForgotErr("Please enter your email address."); return; }
+    setForgotLoading(true); setForgotErr("");
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+      redirectTo: window.location.origin,
+    });
+    setForgotLoading(false);
+    if (error) { setForgotErr(error.message); return; }
+    setView("sent");
+  };
 
   const submit = async () => {
     setErr("");
@@ -3239,6 +3338,72 @@ function LoginScreen({ onLogin }) {
       isActive:    profile.is_active,
     });
   };
+
+  if (view === "forgot") return (
+    <div className="login-screen">
+      <div className="login-left">
+        <div className="login-left-bg" />
+        <div className="login-left-overlay" />
+        <div className="login-left-content">
+          <div className="login-left-logo"><img src={inspireLogo} alt="logo" /></div>
+          <div className="login-left-appname">INSPIRE YOUTH FOR DEVELOPMENT (IYD)</div>
+          <div className="login-left-erp">Inspire Management System (IMS)</div>
+        </div>
+      </div>
+      <div className="login-right">
+        <div className="login-card">
+          <div className="login-logo-mark"><img src={inspireLogo} alt="logo" /></div>
+          <div className="login-heading" style={{ fontSize:22 }}>Reset your password</div>
+          <div className="login-sub-text">Enter the email address for your account and we'll send you a reset link.</div>
+          {forgotErr && <div className="alert alert-red" style={{ marginBottom:14 }}>{forgotErr}</div>}
+          <div className="form-group" style={{ marginBottom:20 }}>
+            <label>Email address</label>
+            <div className="login-input-wrap">
+              <span className="login-input-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+              </span>
+              <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="Enter your email" autoFocus onKeyDown={e => e.key === "Enter" && sendResetLink()} />
+            </div>
+          </div>
+          <button className="login-btn" onClick={sendResetLink} disabled={forgotLoading}>
+            {forgotLoading ? "Sending…" : "Send reset link"}
+          </button>
+          <div className="login-footer">
+            <button className="login-forgot" style={{ fontWeight:400 }} type="button" onClick={() => setView("login")}>← Back to sign in</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (view === "sent") return (
+    <div className="login-screen">
+      <div className="login-left">
+        <div className="login-left-bg" />
+        <div className="login-left-overlay" />
+        <div className="login-left-content">
+          <div className="login-left-logo"><img src={inspireLogo} alt="logo" /></div>
+          <div className="login-left-appname">INSPIRE YOUTH FOR DEVELOPMENT (IYD)</div>
+          <div className="login-left-erp">Inspire Management System (IMS)</div>
+        </div>
+      </div>
+      <div className="login-right">
+        <div className="login-card">
+          <div className="login-logo-mark"><img src={inspireLogo} alt="logo" /></div>
+          <div style={{ textAlign:"center", fontSize:40, marginBottom:16 }}>✉️</div>
+          <div className="login-heading" style={{ fontSize:21, textAlign:"center" }}>Check your inbox</div>
+          <div className="login-sub-text" style={{ textAlign:"center", marginBottom:24 }}>
+            We sent a password reset link to <strong>{forgotEmail}</strong>. Click the link in the email to set a new password.
+          </div>
+          <div style={{ background:"var(--navy-pale)", borderRadius:8, padding:"12px 14px", fontSize:12.5, color:"var(--g600)", marginBottom:20, lineHeight:1.7 }}>
+            Didn't receive it? Check your spam folder, or{" "}
+            <button className="login-forgot" style={{ fontSize:12.5 }} type="button" onClick={() => setView("forgot")}>try again</button>.
+          </div>
+          <button className="login-btn" style={{ background:"var(--g100)", color:"var(--navy)", boxShadow:"none" }} onClick={() => setView("login")}>Back to sign in</button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="login-screen">
@@ -3341,11 +3506,10 @@ function LoginScreen({ onLogin }) {
               <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
               Remember me
             </label>
-            <button className="login-forgot" type="button">Forgot password?</button>
+            <button className="login-forgot" type="button" onClick={() => { setForgotEmail(email); setForgotErr(""); setView("forgot"); }}>Forgot password?</button>
           </div>
 
           <button className="login-btn" onClick={submit}>Sign In</button>
-
 
           <div className="login-footer">© {new Date().getFullYear()} {ORG_NAME}. All rights reserved.</div>
         </div>
@@ -11010,8 +11174,9 @@ function ActivityLogs() {
 // â"€â"€ Main App â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 export default function App() {
   const [user,        setUser]        = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [page,        setPageState]   = useState("home");
+  const [authChecked,        setAuthChecked]        = useState(false);
+  const [passwordRecovery,   setPasswordRecovery]   = useState(false);
+  const [page,               setPageState]          = useState("home");
   const [projects,    setProjects]    = useState([]);
   const [requests,    setRequests]    = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -11452,6 +11617,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Detect password recovery redirect (user clicked reset link in email)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+        setAuthChecked(true);
+      }
+    });
     loadState();
     fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => {
       saveState();
@@ -11479,6 +11651,7 @@ export default function App() {
           });
       });
     });
+    return () => subscription.unsubscribe();
   }, [refresh]);
 
   useEffect(() => { if (user) refresh(); }, [user, refresh]);
@@ -11566,6 +11739,13 @@ export default function App() {
         </div>
         <div className="ims-splash-loading">Loading</div>
       </div>
+    </>
+  );
+
+  if (passwordRecovery) return (
+    <>
+      <style>{CSS}</style>
+      <PasswordResetScreen onDone={() => { setPasswordRecovery(false); }} />
     </>
   );
 
