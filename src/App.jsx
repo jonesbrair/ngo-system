@@ -62,6 +62,14 @@ async function fetchProjectsFromDB() {
   console.log("Supabase projects loaded:", _projects.length);
 }
 
+// Maps the DB stage column back to the user-role key used by renderChainStep
+const STAGE_TO_ROLE = {
+  pending_supervisor:          "supervisor",
+  pending_accountant:          "accountant",
+  pending_finance:             "finance_manager",
+  pending_executive_director:  "executive_director",
+  approved:                    "payment_accountant",
+};
 async function fetchRequestsFromDB() {
   const { data, error } = await supabase
     .from("requests")
@@ -81,7 +89,7 @@ async function fetchRequestsFromDB() {
         const userMap2 = new Map(_users.map(u => [u.id, u]));
         exists.approvals = row.request_approvals.map(a => ({
           userId:    a.approver_id,
-          role:      a.stage,
+          role:      STAGE_TO_ROLE[a.stage] || a.stage,
           decision:  a.action,
           note:      a.comment || "",
           at:        a.acted_at,
@@ -120,7 +128,7 @@ async function fetchRequestsFromDB() {
       lastRejectionReason: extra.lastRejectionReason || null,
       approvals:           (row.request_approvals || []).map(a => ({
         userId:    a.approver_id,
-        role:      a.stage,
+        role:      STAGE_TO_ROLE[a.stage] || a.stage,
         decision:  a.action,
         note:      a.comment || "",
         at:        a.acted_at,
