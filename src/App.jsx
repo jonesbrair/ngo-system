@@ -199,6 +199,32 @@ async function fetchEmployeesFromDB() {
   console.log("Supabase employees merged:", data.length);
 }
 
+async function fetchNotificationsFromDB() {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(300);
+  if (error) { console.warn("Supabase notifications error:", error.message); return; }
+  if (!data?.length) return;
+  data.forEach(row => {
+    const exists = _notifications.find(n => n.id === row.id);
+    if (exists) {
+      if (row.is_read) exists.read = true;
+    } else {
+      _notifications.push({
+        id:        row.id,
+        userId:    row.user_id,
+        message:   row.message,
+        requestId: row.request_id || null,
+        read:      row.is_read   || false,
+        at:        row.created_at,
+        page:      row.page      || null,
+      });
+    }
+  });
+}
+
 const APP_NAME = "INSPIRE YOUTH";
 const APP_SUB  = "Inspire Management System (IMS)";
 const ORG_NAME = "Inspire Youth For Development";
@@ -2126,7 +2152,19 @@ function addLog(requestId, userId, action, note="") {
   _logs.push({ id:uid(), requestId, userId, action, note, at:ts() });
 }
 function addNotif(userId, message, requestId, meta={}) {
-  _notifications.push({ id:uid(), userId, message, requestId, read:false, at:ts(), ...meta });
+  const id = uid();
+  const at = ts();
+  _notifications.push({ id, userId, message, requestId, read:false, at, ...meta });
+  // Persist cross-device — fire and forget
+  supabase.from("notifications").insert({
+    id,
+    user_id:    userId,
+    message,
+    request_id: requestId || null,
+    is_read:    false,
+    created_at: at,
+    page:       meta.page || null,
+  }).then(({ error }) => { if (error) console.warn("[notif]", error.message); });
 }
 function getNotificationTargetPage(user, notification) {
   if (!notification || !user) return "notifications";
@@ -6530,17 +6568,34 @@ function ModulePlaceholderPage({ title, description, icon="doc", tone="navy" }) 
 }
 
 function SystemHome({ setPage, user }) {
+  const [, tick] = useState(0);
+  // Fetch fresh data from DB on mount so the widget is always current
+  useEffect(() => {
+    Promise.all([fetchLeaveApplicationsFromDB(), fetchRequestsFromDB(), fetchNotificationsFromDB()])
+      .then(() => { saveState(); tick(n => n + 1); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const mr = getModuleRole(user);
   const isAdmin = mr === "admin";
   const visibleAnnouncements = getRelevantAnnouncementsForUser(user).slice(0, 3);
   const unreadAnnouncements = getRelevantAnnouncementsForUser(user).filter(item => !item.readBy?.includes(user.id)).length;
 
   // ── Active Workflows widget data ─────────────────────────────────────────────
-  const pendingLeaveApprovals  = getPendingLeaveApprovalsForUser(user);
+  const pendingLeaveApprovals   = getPendingLeaveApprovalsForUser(user);
   const pendingFinanceApprovals = getPendingForRole(user.role, _requests, user.id);
   const pendingAccountabilities = getPendingAccountabilityForRole(user.role, _requests, user.id);
-  const myActiveLeave   = _leaveApplications.filter(a => a.userId === user.id && ["pending_supervisor","pending_hr","pending_executive_director"].includes(a.status));
-  const myActiveFinance = _requests.filter(r => r.requesterId === user.id && r.status && r.status.startsWith("pending") && !["pending_payment_accountant","pending_accountability"].includes(r.status));
+
+  // In-progress: pending stages + rejected (needs action)
+  const myActiveLeave = _leaveApplications.filter(a =>
+    a.userId === user.id &&
+    ["pending_supervisor","pending_hr","pending_executive_director","rejected"].includes(a.status)
+  );
+  const myActiveFinance = _requests.filter(r =>
+    r.requesterId === user.id &&
+    r.status &&
+    (r.status.startsWith("pending") || r.status.startsWith("rejected")) &&
+    !["pending_payment_accountant","pending_accountability"].includes(r.status)
+  );
   const hasAnything = pendingLeaveApprovals.length || pendingFinanceApprovals.length || pendingAccountabilities.length || myActiveLeave.length || myActiveFinance.length;
 
   const homeCards = [
@@ -6608,7 +6663,7 @@ function SystemHome({ setPage, user }) {
   return (
     <div className="page">
       <div className="page-header">
-        <div className="page-title">Home</div>
+        <div className="page-title">Good day, {user.name.split(" ")[0]}</div>
         <div className="page-sub">Choose a system area to continue.</div>
       </div>
 
@@ -6657,30 +6712,34 @@ function SystemHome({ setPage, user }) {
                 <div style={{ display:"grid", gap:6 }}>
                   {myActiveLeave.slice(0,3).map(a => {
                     const lt = LEAVE_TYPES.find(l => l.id === a.leaveTypeId);
+                    const isRejected = a.status === "rejected";
                     const statusMeta = leaveStatusMeta(a.status);
                     return (
-                      <button key={a.id} onClick={() => setPage("my_leave")} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", border:"1px solid var(--g100)", borderRadius:8, padding:"10px 14px", cursor:"pointer", textAlign:"left", width:"100%" }}>
-                        <span style={{ fontSize:15 }}>🏖️</span>
+                      <button key={a.id} onClick={() => setPage("my_leave")} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", border:`1px solid ${isRejected ? "#fca5a5" : "var(--g100)"}`, borderRadius:8, padding:"10px 14px", cursor:"pointer", textAlign:"left", width:"100%" }}>
+                        <span style={{ fontSize:15 }}>{isRejected ? "❌" : "🏖️"}</span>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)" }}>{a.id} — {lt?.name || a.leaveTypeId}</div>
                           <div style={{ fontSize:12, color:"var(--g500)", marginTop:1 }}>
                             {new Date(a.startDate).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – {new Date(a.endDate).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})} · {a.numDays} {a.numDays === 1 ? "day" : "days"}
                           </div>
                         </div>
-                        <span style={{ fontSize:11, fontWeight:700, background:statusMeta.bg, color:statusMeta.color, padding:"2px 10px", borderRadius:999, whiteSpace:"nowrap" }}>{statusMeta.label}</span>
+                        <span style={{ fontSize:11, fontWeight:700, background: isRejected ? "#fee2e2" : statusMeta.bg, color: isRejected ? "#991b1b" : statusMeta.color, padding:"2px 10px", borderRadius:999, whiteSpace:"nowrap" }}>{isRejected ? "Rejected — Speak to Supervisor" : statusMeta.label}</span>
                       </button>
                     );
                   })}
-                  {myActiveFinance.slice(0,3).map(r => (
-                    <button key={r.id} onClick={() => setPage("my_requests")} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", border:"1px solid var(--g100)", borderRadius:8, padding:"10px 14px", cursor:"pointer", textAlign:"left", width:"100%" }}>
-                      <span style={{ fontSize:15 }}>📄</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)" }}>{r.id} — {r.title}</div>
-                        <div style={{ fontSize:12, color:"var(--g500)", marginTop:1 }}>UGX {Number(r.amount||0).toLocaleString()}</div>
-                      </div>
-                      <span style={{ fontSize:11, fontWeight:700, background:"#fef3c7", color:"#92400e", padding:"2px 10px", borderRadius:999, whiteSpace:"nowrap" }}>In Progress</span>
-                    </button>
-                  ))}
+                  {myActiveFinance.slice(0,3).map(r => {
+                    const isRejected = r.status?.startsWith("rejected");
+                    return (
+                      <button key={r.id} onClick={() => setPage("my_requests")} style={{ display:"flex", alignItems:"center", gap:12, background:"#fff", border:`1px solid ${isRejected ? "#fca5a5" : "var(--g100)"}`, borderRadius:8, padding:"10px 14px", cursor:"pointer", textAlign:"left", width:"100%" }}>
+                        <span style={{ fontSize:15 }}>{isRejected ? "❌" : "📄"}</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)" }}>{r.id} — {r.title}</div>
+                          <div style={{ fontSize:12, color:"var(--g500)", marginTop:1 }}>UGX {Number(r.amount||0).toLocaleString()}</div>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:700, background: isRejected ? "#fee2e2" : "#fef3c7", color: isRejected ? "#991b1b" : "#92400e", padding:"2px 10px", borderRadius:999, whiteSpace:"nowrap" }}>{isRejected ? "Rejected — Edit & Resubmit" : "In Progress"}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -10377,38 +10436,72 @@ function PaymentQueue({ user, requests, onPay, onApproveAccountability, onReject
 
 // â"€â"€ Notifications â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function Notifications({ user, setPage }) {
-  const [notifs, setNotifs] = useState(() => _notifications.filter(n=>n.userId===user.id).sort((a,b)=>new Date(b.at)-new Date(a.at)));
+  const [notifs, setNotifs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(() => {
+    setNotifs([..._notifications.filter(n => n.userId === user.id)].sort((a,b) => new Date(b.at) - new Date(a.at)));
+  }, [user.id]);
+
   useEffect(() => {
-    notifs.forEach(n=>n.read=true);
+    setLoading(true);
+    fetchNotificationsFromDB().then(() => {
+      saveState();
+      reload();
+      setLoading(false);
+    });
+  }, [reload]);
+
+  // Mark all as read on open — also sync to Supabase
+  useEffect(() => {
+    if (loading || !notifs.length) return;
+    const unreadItems = notifs.filter(n => !n.read);
+    if (!unreadItems.length) return;
+    unreadItems.forEach(n => { n.read = true; });
     saveState();
-  }, [notifs]);
-  const unread = notifs.filter(n=>!n.read).length;
+    const ids = unreadItems.map(n => n.id);
+    supabase.from("notifications").update({ is_read: true }).in("id", ids).then(() => {});
+    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
+  }, [notifs, loading]);
+
+  const unread = notifs.filter(n => !n.read).length;
+
   const openNotification = (notification) => {
     notification.read = true;
+    supabase.from("notifications").update({ is_read: true }).eq("id", notification.id).then(() => {});
     saveState();
-    setNotifs(current => current.map(item => item.id === notification.id ? { ...item, read:true } : item));
+    setNotifs(prev => prev.map(item => item.id === notification.id ? { ...item, read: true } : item));
     const targetPage = getNotificationTargetPage(user, notification);
-    if (targetPage && targetPage !== "notifications") {
-      setPage(targetPage);
-    }
+    if (targetPage && targetPage !== "notifications") setPage(targetPage);
   };
+
+  const markAllRead = () => {
+    const unreadIds = notifs.filter(n => !n.read).map(n => n.id);
+    notifs.forEach(n => { n.read = true; });
+    if (unreadIds.length) supabase.from("notifications").update({ is_read: true }).in("id", unreadIds).then(() => {});
+    saveState();
+    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
   return (
     <div className="page">
       <div className="page-header flex items-center justify-between">
         <div>
           <div className="page-title">Notifications</div>
-          <div className="page-sub">{notifs.length} total{unread>0?` · ${unread} unread`:""}</div>
+          <div className="page-sub">{notifs.length} total{unread > 0 ? ` · ${unread} unread` : ""}</div>
         </div>
-        {notifs.length>0 && <button className="btn btn-ghost btn-sm" onClick={()=>{ notifs.forEach(n=>n.read=true); saveState(); setNotifs([...notifs]); }}>Mark all read</button>}
+        {notifs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={markAllRead}>Mark all read</button>}
       </div>
       <div className="card">
-        {notifs.length===0 ? (
+        {loading ? (
+          <div className="empty-state"><div className="empty-text">Loading notifications…</div></div>
+        ) : notifs.length === 0 ? (
           <div className="empty-state"><div className="empty-icon"><IconBadge name="com" tone="teal" size={22} /></div><div className="empty-text">No notifications yet</div></div>
-        ) : notifs.map(n=>(
+        ) : notifs.map(n => (
           <button
             key={n.id}
             type="button"
-            className={`notif-item ${!n.read?"unread":""}`}
+            className={`notif-item ${!n.read ? "unread" : ""}`}
             onClick={() => openNotification(n)}
             style={{ width:"100%", textAlign:"left", cursor:"pointer", background:"transparent" }}
             title="Open related page"
@@ -12259,7 +12352,7 @@ export default function App() {
       }
     });
     loadState();
-    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => {
+    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => fetchNotificationsFromDB()).then(() => {
       saveState();
       refresh();
       supabase.auth.getSession().then(({ data: { session } }) => {
@@ -12296,15 +12389,19 @@ export default function App() {
     }, 5000);
     return () => window.clearInterval(timer);
   }, [user, refresh]);
-  // Re-fetch leave applications from DB every 30 s so supervisors see
-  // submissions that arrived on other devices without a full page reload.
+  // Re-fetch leave applications + requests + notifications from DB every 15 s
+  // so all users see changes made on other devices without a manual refresh.
   useEffect(() => {
     if (!user) return undefined;
     const timer = window.setInterval(async () => {
-      await fetchLeaveApplicationsFromDB();
+      await Promise.all([
+        fetchLeaveApplicationsFromDB(),
+        fetchRequestsFromDB(),
+        fetchNotificationsFromDB(),
+      ]);
       saveState();
       refresh();
-    }, 30000);
+    }, 15000);
     return () => window.clearInterval(timer);
   }, [user, refresh]);
   useEffect(() => {
@@ -12607,10 +12704,12 @@ export default function App() {
                   <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
                 </svg>
               </button>
-              <button className="topbar-back-btn" onClick={goBack} disabled={!canGoBack} title={canGoBack ? "Go back to previous page" : "No previous page"}>
-                <AppButtonIcon name="back" tone="blue" size={13} />
-                <span>Back</span>
-              </button>
+              {page !== "home" && (
+                <button className="topbar-back-btn" onClick={goBack} disabled={!canGoBack} title={canGoBack ? "Go back to previous page" : "No previous page"}>
+                  <AppButtonIcon name="back" tone="blue" size={13} />
+                  <span>Back</span>
+                </button>
+              )}
               <div className="topbar-title">{PAGE_TITLES[page]||"Dashboard"}</div>
             </div>
             <div className="topbar-actions">
