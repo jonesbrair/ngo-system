@@ -85,7 +85,7 @@ async function fetchRequestsFromDB() {
       exists.supervisorId        = (row.supporting_docs?.supervisorId) ?? exists.supervisorId;
       exists.supervisorName      = (row.supporting_docs?.supervisorName) || exists.supervisorName;
       exists.lastRejectionReason = (row.supporting_docs?.lastRejectionReason) ?? exists.lastRejectionReason;
-      if (Array.isArray(row.request_approvals) && row.request_approvals.length > exists.approvals.length) {
+      if (Array.isArray(row.request_approvals) && row.request_approvals.length >= exists.approvals.length) {
         const userMap2 = new Map(_users.map(u => [u.id, u]));
         exists.approvals = row.request_approvals.map(a => ({
           userId:    a.approver_id,
@@ -2398,7 +2398,7 @@ function approveRequest(req, approver) {
     : ROLE_LABELS[approver.role];
 
   req.approvals = [
-    ...(req.approvals || []),
+    ...(req.approvals || []).map(a => ({ ...a, role: STAGE_TO_ROLE[a.role] || a.role })),
     { role:approver.role, userId:approver.id, name:approver.name, decision:"approved", at:ts(), stage:req.status, signature:approverSignature },
   ];
   addLog(req.id, approver.id, `Approved by ${approvalLabel}`);
@@ -2429,7 +2429,10 @@ function rejectRequest(req, approver, reason) {
     ? adminStageMap[req.status]
     : { supervisor:{status:"rejected_supervisor"}, accountant:{status:"rejected_accountant"}, finance_manager:{status:"rejected_finance"}, executive_director:{status:"rejected_executive_director"} }[approver.role];
   const rejectionLabel = approver.role === "admin" ? `Administrator override (${next?.label || "workflow step"})` : ROLE_LABELS[approver.role];
-  req.approvals = [...(req.approvals||[]), { role:approver.role, userId:approver.id, name:approver.name, decision:"rejected", note:reason, at:ts(), stage:req.status, signature:approverSignature }];
+  req.approvals = [
+    ...(req.approvals||[]).map(a => ({ ...a, role: STAGE_TO_ROLE[a.role] || a.role })),
+    { role:approver.role, userId:approver.id, name:approver.name, decision:"rejected", note:reason, at:ts(), stage:req.status, signature:approverSignature },
+  ];
   addLog(req.id, approver.id, `Rejected by ${rejectionLabel}`, reason);
   req.status = next?.status || "rejected_finance";
   req.lastRejectionReason = reason;
@@ -9343,6 +9346,17 @@ function RequestDetail({
         </div>
       )}
 
+      {/* Approval chain */}
+      <hr className="divider" />
+      <div className="font-bold text-sm mb-3 text-navy">Approval Chain</div>
+      <div className="chain mb-4">
+        {renderChainStep("pending_supervisor",         "Program Manager Review",  "supervisor")}
+        {renderChainStep("pending_accountant",         "Accountant (Budget Check)","accountant")}
+        {renderChainStep("pending_finance",            "Senior Accountant",        "finance_manager")}
+        {renderChainStep("pending_executive_director", "Executive Director",       "executive_director")}
+        {renderChainStep("approved",                   "Payment Officer",          "payment_accountant")}
+      </div>
+
       {/* Payment info box (shown once payment is recorded) */}
       {txId && (
         <div className="alert alert-green mb-4">
@@ -9478,17 +9492,6 @@ function RequestDetail({
           )}
         </>
       )}
-
-      {/* Approval chain */}
-      <hr className="divider" />
-      <div className="font-bold text-sm mb-3 text-navy">Approval Chain</div>
-      <div className="chain mb-4">
-        {renderChainStep("pending_supervisor",         "Program Manager Review",  "supervisor")}
-        {renderChainStep("pending_accountant",         "Accountant (Budget Check)","accountant")}
-        {renderChainStep("pending_finance",            "Senior Accountant",        "finance_manager")}
-        {renderChainStep("pending_executive_director", "Executive Director",       "executive_director")}
-        {renderChainStep("approved",                   "Payment Officer",          "payment_accountant")}
-      </div>
 
       {/* Activity timeline */}
       <hr className="divider" />
