@@ -285,7 +285,7 @@ function canAccessModule(user, mod) {
   return true;
 }
 // All users can always access their personal workspace (requests / notifications)
-const PERSONAL_PAGES = new Set(["my_requests","new_request","notifications","home","my_signature"]);
+const PERSONAL_PAGES = new Set(["my_requests","my_drafts","new_request","notifications","home","my_signature"]);
 const HR_WORKSPACE_PAGES = new Set(["human_resource","hr_staff_files","hr_employees","hr_org_structure","hr_departments","hr_positions","hr_users","hr_leave","hr_leave_manage","my_leave","leave_apply","my_signature"]);
 
 function getWorkspaceChromeName(user, page) {
@@ -6380,7 +6380,7 @@ function MyESignaturePage({ user, onSaveSignature }) {
   );
 }
 
-function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, onLogout, isOpen, onClose }) {
+function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, draftCount, onLogout, isOpen, onClose }) {
   const isApprover = ["supervisor","accountant","finance_manager","executive_director","payment_accountant"].includes(user.role);
   const isAdmin = user.role === "admin";
   const mr = getModuleRole(user);
@@ -6388,7 +6388,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
   const canAccessFinancialReports = hasDashboardAccess(user, "financial_reports");
   const canAccessPaymentQueue = hasDashboardAccess(user, "payment_queue");
   const financePages = new Set([
-    "dashboard","new_request","my_requests","pending_approvals","approval_history",
+    "dashboard","new_request","my_requests","my_drafts","pending_approvals","approval_history",
     "payment_queue","notifications","financial_reports","my_leave","leave_apply","my_signature",
   ]);
   const adminPages = new Set(["admin_center","admin_users","admin_budgets","admin_all_requests","admin_logs","my_signature"]);
@@ -6449,6 +6449,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           <div className="nav-sec">Requests</div>
           {N("new_request","New Request","new_request")}
           {N("requests","My Requests","my_requests")}
+          {N("edit","My Drafts","my_drafts", draftCount || null)}
 
           {(isApprover || isAdmin) && <>
             <div className="nav-sec">Approvals</div>
@@ -9976,6 +9977,102 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
   );
 }
 
+// ── My Drafts ──────────────────────────────────────────────────────────────
+function MyDrafts({ user, requests, onSaveEdit, onDelete, setPage, onOpenSignatureSettings }) {
+  const [editReq, setEditReq] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const drafts = requests
+    .filter(r => r.requesterId === user.id && r.status === "draft")
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  return (
+    <div className="page">
+      <div className="page-header flex items-center justify-between">
+        <div>
+          <div className="page-title">My Drafts</div>
+          <div className="page-sub">{drafts.length} saved draft{drafts.length !== 1 ? "s" : ""}</div>
+        </div>
+        <button className="btn btn-amber" onClick={() => setPage("new_request")}>
+          <AppButtonIcon name="add" tone="amber" size={13} /> New Request
+        </button>
+      </div>
+
+      <div className="card">
+        {drafts.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon"><IconBadge name="requests" tone="blue" size={22} /></div>
+            <div className="empty-text">No saved drafts</div>
+            <div className="empty-sub">Start a new request and save it as a draft to continue later</div>
+            <button className="btn btn-amber" style={{ marginTop:12 }} onClick={() => setPage("new_request")}>
+              <AppButtonIcon name="add" tone="amber" size={13} /> Start New Request
+            </button>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Title</th>
+                  <th>Department</th>
+                  <th>Amount</th>
+                  <th>Last Saved</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {drafts.map(r => (
+                  <tr key={r.id}>
+                    <td><span className="ref">{r.id}</span></td>
+                    <td style={{ fontWeight:500, maxWidth:200 }} className="truncate">{r.title || <span className="text-gray">Untitled</span>}</td>
+                    <td className="text-gray">{r.department || "—"}</td>
+                    <td><span className="amount">{fmtAmt(r.amount)}</span></td>
+                    <td className="text-sm text-gray">{fmt(r.createdAt)}</td>
+                    <td>
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button className="btn btn-blue btn-sm" onClick={() => setEditReq(r)}>
+                          <AppButtonIcon name="edit" tone="blue" size={12} /> Edit &amp; Submit
+                        </button>
+                        <button className="btn btn-ghost btn-sm" style={{ color:"var(--red)" }} onClick={() => setConfirmDelete(r)}>
+                          <AppButtonIcon name="reject" tone="red" size={12} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {editReq && (
+        <Modal title="Edit Draft" onClose={() => setEditReq(null)} size="modal-lg">
+          <NewRequestForm
+            user={user} projects={_projects} requests={_requests} editRequest={editReq}
+            onSave={(form, submit) => { onSaveEdit(form, submit, editReq); setEditReq(null); }}
+            onClose={() => setEditReq(null)}
+            onOpenSignatureSettings={onOpenSignatureSettings}
+          />
+        </Modal>
+      )}
+
+      {confirmDelete && (
+        <Modal title="Delete Draft" onClose={() => setConfirmDelete(null)} size="modal-sm">
+          <div style={{ padding:"8px 0 16px" }}>
+            <p>Are you sure you want to delete the draft <strong>"{confirmDelete.title || "Untitled"}"</strong>? This cannot be undone.</p>
+          </div>
+          <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+            <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>Cancel</button>
+            <button className="btn btn-red" onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }}>Delete Draft</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function PendingApprovals({ user, requests, onApprove, onReject, onPay, onSubmitAccountability, onApproveAccountability, onRejectAccountability }) {
   // Pre-payment approval queue (Stages 1 approval chain)
   const pending = getPendingForRole(user.role, requests, user.id);
@@ -12271,7 +12368,20 @@ export default function App() {
     }
     syncState();
     if (submit) setPage("my_requests");
+    else if (!editReq) setPage("my_drafts");
   }, [setPage, user, syncState]);
+
+  const handleDeleteDraft = useCallback((draftId) => {
+    const idx = _requests.findIndex(r => r.id === draftId);
+    if (idx === -1) return;
+    const req = _requests[idx];
+    if (req.status !== "draft") return;
+    _requests.splice(idx, 1);
+    supabase.from("requests").delete().eq("request_number", draftId)
+      .then(({ error }) => { if (error) console.warn("Could not delete draft from Supabase:", error.message); });
+    addLog(draftId, user.id, "Draft deleted");
+    syncState();
+  }, [user, syncState]);
 
 /*
   const handleSaveActivityPlan = useCallback((form, submit, editPlan=null) => {
@@ -12431,6 +12541,7 @@ export default function App() {
     ["approved","pending_payment_accountant","paid","pending_accountability","senior_accountant_approved"].includes(r.status)
   ).length;
   const notifCount   = _notifications.filter(n=>n.userId===user?.id&&!n.read).length;
+  const draftCount   = requests.filter(r=>r.requesterId===user?.id&&r.status==="draft").length;
   const messageUnreadCount = getUnreadMessagesCountForUser(user);
   const canGoBack = pageHistoryRef.current.length > 0;
   const chromeUserName = getWorkspaceChromeName(user, page);
@@ -12508,7 +12619,7 @@ export default function App() {
 
   const PAGE_TITLES = {
     home:"Home",
-    dashboard:"Finance Dashboard", admin_center:"Admin Center", new_request:"New Request", my_requests:"My Requests",
+    dashboard:"Finance Dashboard", admin_center:"Admin Center", new_request:"New Request", my_requests:"My Requests", my_drafts:"My Drafts",
     pending_approvals:"Pending Approvals", approval_history:"Approval History",
     payment_queue:"Payment Queue", notifications:"Notifications", financial_reports:"Financial Reports",
     my_signature:"My E-Signature",
@@ -12544,13 +12655,24 @@ export default function App() {
       case "my_requests":
         return (
           <RequestsList user={user} requests={requests} title="My Requests"
-            filterFn={r=>r.requesterId===user.id}
+            filterFn={r=>r.requesterId===user.id&&r.status!=="draft"}
             onApprove={handleApprove} onReject={handleReject} onPay={handlePay}
             onSaveEdit={(form,submit,editReq)=>handleSaveRequest(form,submit,editReq)}
             onSubmitAccountability={handleSubmitAccountability}
             onApproveAccountability={handleApproveAccountability}
             onRejectAccountability={handleRejectAccountability}
             onOpenSignatureSettings={()=>setPage("my_signature")}
+          />
+        );
+
+      case "my_drafts":
+        return (
+          <MyDrafts
+            user={user} requests={requests}
+            onSaveEdit={(form, submit, editReq) => handleSaveRequest(form, submit, editReq)}
+            onDelete={handleDeleteDraft}
+            setPage={setPage}
+            onOpenSignatureSettings={() => setPage("my_signature")}
           />
         );
 
@@ -12702,7 +12824,7 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div className="layout">
-        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} draftCount={draftCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <div className="main">
           <div className="topbar">
