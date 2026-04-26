@@ -976,6 +976,36 @@ function getFallbackSupervisor(userId, users=_users) {
   return supervisors.find(u => u.id !== userId) || supervisors[0] || null;
 }
 
+function buildRequestSupportingDocs(req) {
+  return {
+    supervisorId:            req.supervisorId            ?? null,
+    supervisorName:          req.supervisorName          || "Unassigned",
+    lastRejectionReason:     req.lastRejectionReason     ?? null,
+    // Concept note structured fields
+    activityTitle:           req.activityTitle           || "",
+    startDate:               req.startDate               || "",
+    endDate:                 req.endDate                 || "",
+    venue:                   req.venue                   || "",
+    backgroundJustification: req.backgroundJustification || "",
+    targetedParticipants:    req.targetedParticipants    || "",
+    methodology:             req.methodology             || "",
+    plannedOutputs:          req.plannedOutputs          || "",
+    immediateOutcomes:       req.immediateOutcomes       || "",
+    intermediateOutcomes:    req.intermediateOutcomes    || "",
+    programQualityMarkers:   req.programQualityMarkers   || "",
+    genderConsiderations:    req.genderConsiderations    || "",
+    inclusiveLeadership:     req.inclusiveLeadership     || "",
+    communityResilience:     req.communityResilience     || "",
+    budgetRows:              req.budgetRows              || [],
+    conceptNote:             req.conceptNote             || "",
+    purpose:                 req.purpose                 || "",
+    priority:                req.priority                || "",
+    durationDays:            req.durationDays            ?? null,
+    signature:               req.signature               ?? null,
+    file:                    req.file                    ?? null,
+  };
+}
+
 function getAdminManagedPendingStatuses() {
   return ["pending_supervisor", "pending_accountant", "pending_finance", "pending_executive_director"];
 }
@@ -11916,7 +11946,7 @@ export default function App() {
         request_type:     "vendor_payment",
         status:           req.status,
         submission_date:  new Date().toISOString().slice(0,10),
-        supporting_docs:  { supervisorId: req.supervisorId, supervisorName: req.supervisorName },
+        supporting_docs:  buildRequestSupportingDocs(req),
       }).then(({ error }) => {
         if (error) console.warn("Could not save request to Supabase:", error.message);
       });
@@ -12086,6 +12116,15 @@ export default function App() {
         editReq.lastRejectionReason = null;
         editReq.approvals = [];
         addLog(editReq.id, user.id, "Edited and Resubmitted");
+        supabase.from("requests").update({
+          status:           "pending_supervisor",
+          title:            editReq.title,
+          description:      editReq.description || null,
+          amount_requested: editReq.amount || 0,
+          supporting_docs:  buildRequestSupportingDocs(editReq),
+        }).eq("request_number", editReq.id).then(({ error }) => {
+          if (error) console.warn("Could not update resubmitted request in Supabase:", error.message);
+        });
         if (supervisor) addNotif(supervisor.id, `Approval needed: Finance request "${editReq.title}" from ${user.name} has been resubmitted and is awaiting your review.`, editReq.id);
         if (supervisor?.email) notifyRequestSubmitted({ id: editReq.id, title: editReq.title, amount: editReq.amount, createdAt: ts(), requesterName: user.name, requesterEmail: user.email, isResubmission: true }, supervisor).catch(e => console.warn("[email]", e.message));
       }
@@ -12119,7 +12158,7 @@ export default function App() {
         request_type:     "advance",
         status:           req.status,
         submission_date:  new Date().toISOString().slice(0, 10),
-        supporting_docs:  { supervisorId: req.supervisorId, supervisorName: req.supervisorName },
+        supporting_docs:  buildRequestSupportingDocs(req),
       }).then(({ error }) => {
         if (error) console.warn("Could not save request to Supabase:", error.message);
       });
