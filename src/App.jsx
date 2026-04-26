@@ -226,6 +226,57 @@ async function fetchNotificationsFromDB() {
     }
   });
 }
+async function fetchMessagesFromDB() {
+  const { data, error } = await supabase
+    .from("direct_messages")
+    .select("*")
+    .order("timestamp", { ascending: true })
+    .limit(2000);
+  if (error) { console.warn("Supabase messages error:", error.message); return; }
+  if (!data?.length) return;
+  data.forEach(row => {
+    const exists = _messages.find(m => m.id === row.id);
+    if (exists) {
+      if (row.status === "read") exists.status = "read";
+    } else {
+      _messages.push({
+        id:         row.id,
+        senderId:   row.sender_id,
+        receiverId: row.receiver_id,
+        message:    row.message,
+        timestamp:  row.timestamp,
+        status:     row.status || "delivered",
+      });
+    }
+  });
+}
+async function fetchAnnouncementsFromDB() {
+  const { data, error } = await supabase
+    .from("announcements")
+    .select("*")
+    .order("timestamp", { ascending: false })
+    .limit(500);
+  if (error) { console.warn("Supabase announcements error:", error.message); return; }
+  if (!data?.length) return;
+  data.forEach(row => {
+    const exists = _announcements.find(a => a.id === row.id);
+    if (exists) {
+      const dbReadBy = Array.isArray(row.read_by) ? row.read_by : [];
+      dbReadBy.forEach(uid => { if (!exists.readBy.includes(uid)) exists.readBy.push(uid); });
+    } else {
+      _announcements.push({
+        id:           row.id,
+        senderId:     row.sender_id,
+        audienceType: row.audience_type || "all",
+        department:   row.department   || "",
+        message:      row.message,
+        timestamp:    row.timestamp,
+        status:       row.status       || "delivered",
+        readBy:       Array.isArray(row.read_by) ? row.read_by : [],
+      });
+    }
+  });
+}
 
 const APP_NAME = "INSPIRE YOUTH";
 const APP_SUB  = "Inspire Management System (IMS)";
@@ -2224,18 +2275,28 @@ function sendDirectMessage(senderId, receiverId, message) {
   if (!canDirectMessageUser(sender, receiver)) return { ok:false, message:"You do not have permission to message this user." };
   const entry = { id:uid(), senderId, receiverId, message:cleanMessage, timestamp:ts(), status:"delivered" };
   _messages.push(entry);
+  supabase.from("direct_messages").insert({
+    id: entry.id, sender_id: senderId, receiver_id: receiverId,
+    message: cleanMessage, timestamp: entry.timestamp, status: "delivered",
+  }).then(({ error }) => { if (error) console.warn("[msg]", error.message); });
   addNotif(receiverId, `New message from ${sender.name}`, null);
   return { ok:true, entry };
 }
 function markConversationRead(userId, partnerId) {
   let changed = false;
+  const readIds = [];
   _messages = _messages.map(item => {
     if (item.receiverId === userId && item.senderId === partnerId && item.status !== "read") {
       changed = true;
+      readIds.push(item.id);
       return { ...item, status:"read" };
     }
     return item;
   });
+  if (readIds.length) {
+    supabase.from("direct_messages").update({ status:"read" }).in("id", readIds)
+      .then(({ error }) => { if (error) console.warn("[msg-read]", error.message); });
+  }
   return changed;
 }
 function sendAnnouncement(senderId, audienceType, department, message) {
@@ -2255,6 +2316,12 @@ function sendAnnouncement(senderId, audienceType, department, message) {
     readBy: [senderId],
   };
   _announcements.unshift(entry);
+  supabase.from("announcements").insert({
+    id: entry.id, sender_id: senderId,
+    audience_type: entry.audienceType, department: entry.department || null,
+    message: cleanMessage, timestamp: entry.timestamp,
+    status: "delivered", read_by: entry.readBy,
+  }).then(({ error }) => { if (error) console.warn("[ann]", error.message); });
   _users
     .filter(candidate => candidate.id !== senderId && isAnnouncementVisibleToUser(entry, candidate))
     .forEach(candidate => addNotif(candidate.id, `${sender.name} posted an announcement`, null));
@@ -2268,7 +2335,10 @@ function markAnnouncementsRead(userId) {
     if (!isAnnouncementVisibleToUser(item, targetUser)) return item;
     if (item.readBy?.includes(userId)) return item;
     changed = true;
-    return { ...item, readBy:[...(item.readBy || []), userId] };
+    const newReadBy = [...(item.readBy || []), userId];
+    supabase.from("announcements").update({ read_by: newReadBy }).eq("id", item.id)
+      .then(({ error }) => { if (error) console.warn("[ann-read]", error.message); });
+    return { ...item, readBy: newReadBy };
   });
   return changed;
 }
@@ -6449,7 +6519,6 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           <div className="nav-sec">Requests</div>
           {N("new_request","New Request","new_request")}
           {N("requests","My Requests","my_requests")}
-          {N("edit","My Drafts","my_drafts", draftCount || null)}
 
           {(isApprover || isAdmin) && <>
             <div className="nav-sec">Approvals</div>
@@ -6803,7 +6872,7 @@ function SystemHome({ setPage, user }) {
 }
 
 // â"€â"€ Standard Dashboard â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-function Dashboard({ user, requests, setPage }) {
+function Dashboard({ user, requests, setPage, draftCount }) {
   const mine    = requests.filter(r => r.requesterId===user.id);
   const pendingRequests = getPendingForRole(user.role, requests, user.id);
   const pendingAccountabilities = getPendingAccountabilityForRole(user.role, requests, user.id);
@@ -6879,6 +6948,14 @@ function Dashboard({ user, requests, setPage }) {
           : "Latest updates",
       page:user.role==="payment_accountant" ? "payment_queue" : user.role==="finance_manager" ? "financial_reports" : "notifications",
       tone:user.role==="payment_accountant" ? "teal" : user.role==="finance_manager" ? "violet" : "teal",
+    },
+    {
+      icon:"edit",
+      label:"My Drafts",
+      sub:"Continue working on saved draft requests before submitting them for approval.",
+      meta:draftCount > 0 ? `${draftCount} saved draft${draftCount !== 1 ? "s" : ""}` : "No drafts yet",
+      page:"my_drafts",
+      tone:"violet",
     },
   ];
 
@@ -10538,7 +10615,7 @@ function PaymentQueue({ user, requests, onPay, onApproveAccountability, onReject
 }
 
 // â"€â"€ Notifications â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-function Notifications({ user, setPage }) {
+function Notifications({ user, setPage, onRead }) {
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -10565,7 +10642,8 @@ function Notifications({ user, setPage }) {
     const ids = unreadItems.map(n => n.id);
     supabase.from("notifications").update({ is_read: true }).in("id", ids).then(() => {});
     setNotifs(prev => prev.map(n => ({ ...n, read: true })));
-  }, [notifs, loading]);
+    onRead?.();
+  }, [notifs, loading, onRead]);
 
   const unread = notifs.filter(n => !n.read).length;
 
@@ -11957,6 +12035,8 @@ export default function App() {
   const [projects,    setProjects]    = useState([]);
   const [requests,    setRequests]    = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [, setNotifTick] = useState(0);
+  const bumpNotifTick = useCallback(() => setNotifTick(t => t + 1), []);
   const pageHistoryRef = useRef([]);
 
   const setPage = useCallback((nextPage, options={}) => {
@@ -12470,7 +12550,7 @@ export default function App() {
       }
     });
     loadState();
-    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => fetchNotificationsFromDB()).then(() => {
+    fetchUsersFromDB().then(() => fetchProjectsFromDB()).then(() => fetchRequestsFromDB()).then(() => fetchEmployeesFromDB()).then(() => fetchLeaveApplicationsFromDB()).then(() => fetchNotificationsFromDB()).then(() => fetchMessagesFromDB()).then(() => fetchAnnouncementsFromDB()).then(() => {
       saveState();
       refresh();
       supabase.auth.getSession().then(({ data: { session } }) => {
@@ -12516,6 +12596,8 @@ export default function App() {
         fetchLeaveApplicationsFromDB(),
         fetchRequestsFromDB(),
         fetchNotificationsFromDB(),
+        fetchMessagesFromDB(),
+        fetchAnnouncementsFromDB(),
       ]);
       saveState();
       refresh();
@@ -12644,7 +12726,7 @@ export default function App() {
         return <SystemHome setPage={setPage} user={user} />;
 
       case "dashboard":
-        return <Dashboard user={user} requests={requests} setPage={setPage} />;
+        return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
 
       case "admin_center":
         return <AdminDashboard requests={requests} users={_users} logs={_logs} projects={projects} setPage={setPage} />;
@@ -12693,11 +12775,11 @@ export default function App() {
         );
 
       case "payment_queue":
-        if (!hasDashboardAccess(user, "payment_queue")) return <Dashboard user={user} requests={requests} setPage={setPage} />;
+        if (!hasDashboardAccess(user, "payment_queue")) return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
         return <PaymentQueue user={effectivePageUser} requests={requests} onPay={handlePay} onApproveAccountability={handleApproveAccountability} onRejectAccountability={handleRejectAccountability} />;
 
       case "notifications":
-        return <Notifications user={user} setPage={setPage} />;
+        return <Notifications user={user} setPage={setPage} onRead={bumpNotifTick} />;
 
       case "my_signature":
         return <MyESignaturePage user={user} onSaveSignature={handleSaveUserSignature} />;
@@ -12730,7 +12812,11 @@ export default function App() {
             onMarkAnnouncementsRead={() => {
               if (markAnnouncementsRead(user.id)) syncState();
             }}
-            onRefresh={refresh}
+            onRefresh={async () => {
+              await Promise.all([fetchMessagesFromDB(), fetchAnnouncementsFromDB(), fetchNotificationsFromDB()]);
+              saveState();
+              refresh();
+            }}
           />
         );
 
@@ -12783,7 +12869,7 @@ export default function App() {
         return <BudgetManagement projects={projects} requests={requests} onSaveProject={handleSaveProject} onDeleteProject={handleDeleteProject} onSaveActivity={handleSaveActivity} onDeleteActivity={handleDeleteActivity} />;
 
       case "financial_reports":
-        if (!hasDashboardAccess(user, "financial_reports")) return <Dashboard user={user} requests={requests} setPage={setPage} />;
+        if (!hasDashboardAccess(user, "financial_reports")) return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
         return <FinancialReports projects={projects} requests={requests} />;
 
       case "all_requests":
@@ -12843,9 +12929,30 @@ export default function App() {
               <div className="topbar-title">{PAGE_TITLES[page]||"Dashboard"}</div>
             </div>
             <div className="topbar-actions">
-              <div className="notif-btn" onClick={()=>setPage("notifications")} title="Notifications">
+              <div className="notif-btn" onClick={()=>setPage("notifications")} title="Notifications" style={{ position:"relative" }}>
                 <AppButtonIcon name="notification" tone="teal" size={14} />
-                {notifCount>0&&<span className="notif-dot" />}
+                {notifCount>0&&(
+                  <span style={{
+                    position:"absolute",
+                    top:-4,
+                    right:-4,
+                    minWidth:18,
+                    height:18,
+                    padding:"0 5px",
+                    borderRadius:999,
+                    background:"linear-gradient(145deg,#fb7185 0%,#dc2626 100%)",
+                    color:"#fff",
+                    display:"inline-flex",
+                    alignItems:"center",
+                    justifyContent:"center",
+                    fontSize:10,
+                    fontWeight:800,
+                    boxShadow:"0 10px 18px rgba(220,38,38,.24)",
+                    border:"2px solid #fff",
+                  }}>
+                    {notifCount > 99 ? "99+" : notifCount}
+                  </span>
+                )}
               </div>
               <div className="notif-btn" onClick={()=>setPage("messages_center")} title="Messages" style={{ position:"relative" }}>
                 <AppButtonIcon name="com" tone="blue" size={14} />
