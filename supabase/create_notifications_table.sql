@@ -36,3 +36,11 @@ create policy "Service can update notifications"
   on notifications for update
   to anon
   using (true);
+
+
+-- ── Approval signatures ───────────────────────────────────────────────────────
+-- Add signature_data column to request_approvals so e-signatures persist
+-- across devices and sessions. Run this in the same SQL Editor session.
+
+alter table request_approvals
+  add column if not exists signature_data jsonb;

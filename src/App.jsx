@@ -80,13 +80,14 @@ async function fetchRequestsFromDB() {
       if (Array.isArray(row.request_approvals) && row.request_approvals.length > exists.approvals.length) {
         const userMap2 = new Map(_users.map(u => [u.id, u]));
         exists.approvals = row.request_approvals.map(a => ({
-          userId:   a.approver_id,
-          role:     a.stage,
-          decision: a.action,
-          note:     a.comment || "",
-          at:       a.acted_at,
-          stage:    a.stage,
-          name:     userMap2.get(a.approver_id)?.name || "",
+          userId:    a.approver_id,
+          role:      a.stage,
+          decision:  a.action,
+          note:      a.comment || "",
+          at:        a.acted_at,
+          stage:     a.stage,
+          name:      userMap2.get(a.approver_id)?.name || "",
+          signature: a.signature_data ?? null,
         }));
       }
       return;
@@ -118,13 +119,14 @@ async function fetchRequestsFromDB() {
       supervisorName:      extra.supervisorName || "Unassigned",
       lastRejectionReason: extra.lastRejectionReason || null,
       approvals:           (row.request_approvals || []).map(a => ({
-        userId:   a.approver_id,
-        role:     a.stage,
-        decision: a.action,
-        note:     a.comment || "",
-        at:       a.acted_at,
-        stage:    a.stage,
-        name:     userMap.get(a.approver_id)?.name || "",
+        userId:    a.approver_id,
+        role:      a.stage,
+        decision:  a.action,
+        note:      a.comment || "",
+        at:        a.acted_at,
+        stage:     a.stage,
+        name:      userMap.get(a.approver_id)?.name || "",
+        signature: a.signature_data ?? null,
       })),
       ...extra,
     });
@@ -9117,13 +9119,13 @@ function RequestDetail({
               <div className="sig-name">{isPaymentApproval ? (req.paidByName || approver?.name || "Payment Officer") : approval.name}</div>
               <div className="sig-ts">{fmt(approval.at)} · {approval.decision === "approved" ? "Approved" : "Rejected"}</div>
               {approval.note && <div className="text-xs mt-2" style={{ color:"#065f46" }}>{approval.note}</div>}
-              {approval.signature && (
+              {(() => { const sig = approval.signature || getSavedUserSignature(approval.userId); return sig ? (
                 <div style={{ marginTop:6, padding:"6px 10px", background:"#fff", borderRadius:6, border:"1px dashed var(--g300)", display:"inline-block" }}>
-                  {approval.signature.type === "typed"
-                    ? <span style={{ fontFamily:"Georgia,serif", fontStyle:"italic", fontSize:15, color:"var(--navy)" }}>{approval.signature.value}</span>
-                    : <img src={approval.signature.value} alt="sig" style={{ height:32 }} />}
+                  {sig.type === "typed"
+                    ? <span style={{ fontFamily:"Georgia,serif", fontStyle:"italic", fontSize:15, color:"var(--navy)" }}>{sig.value}</span>
+                    : <img src={sig.value} alt="sig" style={{ height:32 }} />}
                 </div>
-              )}
+              ) : null; })()}
             </>
           ) : (
             <div style={{ fontSize:13, color:"var(--g400)", marginTop:1 }}>{approver?.name || "-"} · Awaiting</div>
@@ -9719,22 +9721,24 @@ function PDFModal({ req, onClose }) {
                     <div className="text-xs text-gray">Submitted · {fmt(req.createdAt)}</div>
                   </div>
                 )}
-                {approvalEntries.map(({ step, approval }) => (
-                  <div className="pdf-sig-box" key={step.role}>
-                    <div className="pdf-fl">{step.label}</div>
-                    {approval ? (
-                      <>
-                        {approval.signature && (
-                          approval.signature.type==="typed"
-                            ? <div style={{ fontFamily:"Georgia,serif", fontStyle:"italic", fontSize:17, color:"var(--navy)" }}>{approval.signature.value}</div>
-                            : <img src={approval.signature.value} alt="sig" style={{ height:36 }} />
-                        )}
-                        <div className="pdf-fv">{approval.name}</div>
-                        <div className="text-xs text-gray">{approval.decision==="approved"?"Approved":"Rejected"} · {fmt(approval.at)}</div>
-                      </>
-                    ) : <div className="text-xs text-gray">Not yet reviewed</div>}
-                  </div>
-                ))}
+                {approvalEntries.map(({ step, approval }) => {
+                  const sig = approval ? (approval.signature || getSavedUserSignature(approval.userId)) : null;
+                  return (
+                    <div className="pdf-sig-box" key={step.role}>
+                      <div className="pdf-fl">{step.label}</div>
+                      {approval ? (
+                        <>
+                          {sig && (sig.type==="typed"
+                            ? <div style={{ fontFamily:"Georgia,serif", fontStyle:"italic", fontSize:17, color:"var(--navy)", marginBottom:4 }}>{sig.value}</div>
+                            : <img src={sig.value} alt="sig" style={{ height:36, marginBottom:4, display:"block" }} />
+                          )}
+                          <div className="pdf-fv">{approval.name}</div>
+                          <div className="text-xs text-gray">{approval.decision==="approved"?"Approved":"Rejected"} · {fmt(approval.at)}</div>
+                        </>
+                      ) : <div className="text-xs text-gray">Not yet reviewed</div>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -9805,22 +9809,24 @@ function PDFModal({ req, onClose }) {
           <div className="pdf-sec">
             <div className="pdf-sec-title">Approval Signatures</div>
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {approvalEntries.map(({ step, approval }) => (
-                <div className="pdf-sig-box" key={step.role}>
-                  <div className="pdf-fl">{step.label}</div>
-                  {approval ? (
-                    <>
-                      {approval.signature && (
-                        approval.signature.type==="typed"
-                          ? <div style={{ fontFamily:"Georgia,serif", fontStyle:"italic", fontSize:17, color:"var(--navy)" }}>{approval.signature.value}</div>
-                          : <img src={approval.signature.value} alt="sig" style={{ height:36 }} />
-                      )}
-                      <div className="pdf-fv">{approval.name}</div>
-                      <div className="text-xs text-gray">{approval.decision==="approved"?"Approved":"Rejected"} · {fmt(approval.at)}</div>
-                    </>
-                  ) : <div className="text-xs text-gray">Not yet reviewed</div>}
-                </div>
-              ))}
+              {approvalEntries.map(({ step, approval }) => {
+                const sig = approval ? (approval.signature || getSavedUserSignature(approval.userId)) : null;
+                return (
+                  <div className="pdf-sig-box" key={step.role}>
+                    <div className="pdf-fl">{step.label}</div>
+                    {approval ? (
+                      <>
+                        {sig && (sig.type==="typed"
+                          ? <div style={{ fontFamily:"Georgia,serif", fontStyle:"italic", fontSize:17, color:"var(--navy)", marginBottom:4 }}>{sig.value}</div>
+                          : <img src={sig.value} alt="sig" style={{ height:36, marginBottom:4, display:"block" }} />
+                        )}
+                        <div className="pdf-fv">{approval.name}</div>
+                        <div className="text-xs text-gray">{approval.decision==="approved"?"Approved":"Rejected"} · {fmt(approval.at)}</div>
+                      </>
+                    ) : <div className="text-xs text-gray">Not yet reviewed</div>}
+                  </div>
+                );
+              })}
             </div>
           </div>
           </>
@@ -11927,12 +11933,13 @@ export default function App() {
       .then(({ data, error }) => {
         if (error) { console.warn("Could not update request status:", error.message); return; }
         supabase.from("request_approvals").insert({
-          request_id:  data.id,
-          approver_id: newApproval.userId,
-          stage:       newApproval.stage,
-          action:      newApproval.decision,
-          comment:     newApproval.note || null,
-          acted_at:    newApproval.at,
+          request_id:     data.id,
+          approver_id:    newApproval.userId,
+          stage:          newApproval.stage,
+          action:         newApproval.decision,
+          comment:        newApproval.note || null,
+          acted_at:       newApproval.at,
+          signature_data: newApproval.signature || null,
         }).then(({ error: e2 }) => { if (e2) console.warn("Could not save approval:", e2.message); });
       });
   }, [user, syncState]);
@@ -11954,12 +11961,13 @@ export default function App() {
       .then(({ data, error }) => {
         if (error) { console.warn("Could not update request status:", error.message); return; }
         supabase.from("request_approvals").insert({
-          request_id:  data.id,
-          approver_id: newApproval.userId,
-          stage:       newApproval.stage,
-          action:      newApproval.decision,
-          comment:     newApproval.note || null,
-          acted_at:    newApproval.at,
+          request_id:     data.id,
+          approver_id:    newApproval.userId,
+          stage:          newApproval.stage,
+          action:         newApproval.decision,
+          comment:        newApproval.note || null,
+          acted_at:       newApproval.at,
+          signature_data: newApproval.signature || null,
         }).then(({ error: e2 }) => { if (e2) console.warn("Could not save rejection:", e2.message); });
       });
   }, [user, syncState]);
