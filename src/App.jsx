@@ -2667,13 +2667,13 @@ const CSS = `
   --sh-lg:0 12px 32px rgba(0,0,0,.14),0 4px 12px rgba(0,0,0,.08);
   --r:12px;--r-sm:8px;--r-xs:5px;
   --serif:'Roboto',system-ui,sans-serif;--sans:'Roboto',system-ui,sans-serif;
-  --sw:260px;--th:64px;
+  --sw:260px;--sw-collapsed:72px;--th:64px;
 }
 html,body{height:100%;font-family:var(--sans);background:var(--off);color:var(--g800);font-size:14px;line-height:1.6}
 
 /* â"€â"€ Layout â"€â"€ */
 .layout{display:flex;min-height:100vh}
-.sidebar{width:var(--sw);min-height:100vh;background:linear-gradient(180deg,#0c2039 0%,#102947 48%,#163459 100%);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;transition:transform .25s;box-shadow:18px 0 42px rgba(15,39,68,.14);overflow:hidden}
+.sidebar{width:var(--sw);min-height:100vh;background:linear-gradient(180deg,#0c2039 0%,#102947 48%,#163459 100%);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;transition:width .28s cubic-bezier(.4,0,.2,1),transform .25s;box-shadow:18px 0 42px rgba(15,39,68,.14);overflow:hidden}
 .sidebar::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at top right,rgba(245,158,11,.18) 0%,transparent 28%),radial-gradient(circle at 20% 80%,rgba(125,211,252,.12) 0%,transparent 34%);pointer-events:none}
 .sidebar-logo{padding:18px 18px 16px;margin:16px 14px 6px;border:1px solid rgba(255,255,255,.08);border-radius:24px;background:rgba(255,255,255,.06);backdrop-filter:blur(10px);display:flex;align-items:center;gap:12px;position:relative;z-index:1}
 .logo-mark{width:54px;height:54px;background:linear-gradient(145deg,#ffffff 0%,#f7fbff 100%);border-radius:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:7px;box-shadow:0 10px 24px rgba(7,16,31,.18)}
@@ -2700,7 +2700,7 @@ html,body{height:100%;font-family:var(--sans);background:var(--off);color:var(--
 .sidebar-logout-btn .app-ui-icon-badge::after{border-radius:9px}
 .sidebar-logout-btn .app-ui-icon-gloss{border-radius:8px}
 .sidebar-logout-label{font-size:12px;font-weight:700;line-height:1}
-.main{margin-left:var(--sw);flex:1;display:flex;flex-direction:column;min-height:100vh}
+.main{margin-left:var(--sw);flex:1;display:flex;flex-direction:column;min-height:100vh;transition:margin-left .28s cubic-bezier(.4,0,.2,1)}
 .topbar{height:var(--th);background:#fff;border-bottom:1px solid var(--g200);display:flex;align-items:center;padding:0 28px;gap:16px;position:sticky;top:0;z-index:50;box-shadow:0 1px 0 var(--g100)}
 .topbar-title{font-family:var(--serif);font-size:21px;color:var(--navy);flex:1}
 .topbar-title-wrap{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
@@ -3190,6 +3190,73 @@ textarea{resize:vertical;min-height:88px}
   .page-header{margin-bottom:16px}
   .card-body{padding:16px}
 }
+
+/* ── Collapsible Sidebar ── */
+.nav-label{flex:1}
+.main.sidebar-collapsed{margin-left:var(--sw-collapsed)}
+.sidebar.collapsed{width:var(--sw-collapsed)}
+.sidebar.collapsed .nav-sec{display:none}
+.sidebar.collapsed .nav-label{display:none}
+.sidebar.collapsed .nav-badge{display:none}
+.sidebar.collapsed .nav-item{justify-content:center;padding:10px;margin:0 8px 6px;border-radius:14px}
+.sidebar.collapsed .nav-item:hover{transform:none}
+.sidebar.collapsed .nav-item.active::before{left:50%;transform:translate(-50%,-50%)}
+.sidebar.collapsed .sidebar-logo{justify-content:center;padding:10px 8px;border-radius:16px;gap:0}
+.sidebar.collapsed .sidebar-logo-text{display:none}
+.sidebar.collapsed .user-chip{flex-direction:column;align-items:center;justify-content:center;padding:8px 6px;gap:6px}
+.sidebar.collapsed .user-chip-copy{display:none}
+.sidebar.collapsed .sidebar-logout-btn{width:32px;height:32px;padding:0;border-radius:50%;gap:0;justify-content:center;align-items:center}
+.sidebar.collapsed .sidebar-logout-label{display:none}
+.sidebar.collapsed .sidebar-toggle-row{justify-content:center}
+.sidebar.collapsed .quick-action-label{display:none}
+.sidebar.collapsed .quick-action-item{justify-content:center;padding:10px;border-radius:14px}
+.sidebar.collapsed .quick-action-item:hover{transform:none}
+.sidebar.collapsed .sidebar-divider{margin:4px 8px}
+.sidebar.collapsed .quick-actions-wrap .nav-sec{display:none}
+
+/* Restore all styles on mobile so collapsed state is ignored when sidebar slides in */
+@media(max-width:900px){
+  .sidebar.collapsed{width:var(--sw)}
+  .sidebar.collapsed .nav-sec,.sidebar.collapsed .quick-actions-wrap .nav-sec{display:block}
+  .sidebar.collapsed .nav-label,.sidebar.collapsed .quick-action-label{display:inline}
+  .sidebar.collapsed .nav-badge{display:inline-flex}
+  .sidebar.collapsed .nav-item{justify-content:flex-start;padding:11px 14px;margin:0 14px 8px;border-radius:999px}
+  .sidebar.collapsed .nav-item:hover{transform:translateX(4px)}
+  .sidebar.collapsed .nav-item.active::before{left:10px;transform:translateY(-50%)}
+  .sidebar.collapsed .sidebar-logo{justify-content:flex-start;padding:18px 18px 16px;border-radius:24px;gap:12px}
+  .sidebar.collapsed .sidebar-logo-text{display:flex}
+  .sidebar.collapsed .user-chip{flex-direction:row;align-items:center;justify-content:flex-start;padding:12px 13px;gap:10px}
+  .sidebar.collapsed .user-chip-copy{display:flex}
+  .sidebar.collapsed .sidebar-logout-btn{width:auto;height:38px;border-radius:999px;padding:0 12px;gap:8px}
+  .sidebar.collapsed .sidebar-logout-label{display:inline}
+  .sidebar.collapsed .quick-action-item{justify-content:flex-start;padding:9px 12px;border-radius:999px}
+  .sidebar.collapsed .quick-action-item:hover{transform:translateX(3px)}
+  .sidebar.collapsed .sidebar-divider{margin:4px 14px}
+}
+
+/* ── Sidebar Toggle Button ── */
+.sidebar-toggle-row{display:flex;align-items:center;justify-content:flex-end;padding:0 16px 8px;position:relative;z-index:1}
+.sidebar-toggle-btn{width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.7);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .18s,color .18s;flex-shrink:0}
+.sidebar-toggle-btn:hover{background:rgba(255,255,255,.2);color:#fff;border-color:rgba(255,255,255,.3)}
+@media(max-width:900px){.sidebar-toggle-row{display:none}}
+
+/* ── Quick Actions Section ── */
+.quick-actions-wrap{position:relative;z-index:1}
+.quick-actions-section{padding:0 14px 4px}
+.quick-action-item{display:flex;align-items:center;gap:10px;padding:9px 12px;margin:0 0 5px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;transition:all .18s ease;border:1px solid rgba(125,211,252,.22);background:rgba(125,211,252,.07);color:#7dd3fc;user-select:none}
+.quick-action-item:hover{background:rgba(125,211,252,.14);border-color:rgba(125,211,252,.38);transform:translateX(3px)}
+.quick-action-item.active{background:rgba(125,211,252,.19);border-color:rgba(125,211,252,.46)}
+.quick-action-label{flex:1}
+
+/* ── Sidebar Divider ── */
+.sidebar-divider{height:1px;background:rgba(255,255,255,.08);margin:4px 14px 4px;position:relative;z-index:1}
+
+/* ── Sidebar Home Shortcut ── */
+.sidebar-home-link{display:flex;align-items:center;justify-content:center;gap:8px;margin:6px 14px 0;padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.6);font-size:11.5px;font-weight:600;cursor:pointer;transition:all .18s ease;position:relative;z-index:1;user-select:none}
+.sidebar-home-link:hover{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.18)}
+.sidebar-home-link.active{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.18)}
+.sidebar.collapsed .sidebar-home-link{margin:6px 8px 0;padding:8px;gap:0;border-radius:12px;justify-content:center}
+.sidebar.collapsed .sidebar-home-link-label{display:none}
 `;
 
 // â"€â"€ Shared micro-components â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -6461,7 +6528,7 @@ function MyESignaturePage({ user, onSaveSignature }) {
   );
 }
 
-function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, draftCount, onLogout, isOpen, onClose }) {
+function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, draftCount, onLogout, isOpen, onClose, collapsed, onToggleCollapse }) {
   const isApprover = ["supervisor","accountant","finance_manager","executive_director","payment_accountant"].includes(user.role);
   const isAdmin = user.role === "admin";
   const mr = getModuleRole(user);
@@ -6481,26 +6548,91 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
   const inMessages = messagePages.has(page);
   const isHome = page === "home";
   const chromeUserName = getWorkspaceChromeName(user, page);
+
   const N = (icon, label, id, badge=null, isActive=page===id, targetPage=id) => (
-    <div key={id} className={`nav-item ${isActive?"active":""}`} onClick={() => { setPage(targetPage); onClose(); }}>
+    <div key={id} className={`nav-item ${isActive?"active":""}`} title={label} onClick={() => { setPage(targetPage); onClose(); }}>
       <span className="nav-icon">
         <IconBadge name={icon} tone={NAV_ICON_TONES[targetPage] || NAV_ICON_TONES[id] || "navy"} size={15} />
       </span>
-      <span style={{ flex:1 }}>{label}</span>
+      <span className="nav-label">{label}</span>
       {badge > 0 && <span className="nav-badge">{badge}</span>}
     </div>
   );
+
+  const QA = (icon, label, id) => (
+    <div key={`qa-${id}`} className={`quick-action-item ${page===id?"active":""}`} title={label} onClick={() => { setPage(id); onClose(); }}>
+      <span className="nav-icon" style={{ width:28, height:28 }}>
+        <IconBadge name={icon} tone="blue" size={13} />
+      </span>
+      <span className="quick-action-label">{label}</span>
+    </div>
+  );
+
   return (
-    <div className={`sidebar${isOpen ? " open" : ""}`}>
+    <div className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
       <div className="sidebar-logo">
         <div className="logo-mark">
           <img src={inspireLogo} alt="Inspire Youth For Development logo" />
         </div>
-        <div>
-          <div className="logo-text">{APP_NAME}</div>
-          <div className="logo-sub">{ORG_NAME}</div>
+        <div className="sidebar-logo-text" style={{ display:"flex", flexDirection:"column", gap:3 }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"#fff", letterSpacing:".03em", lineHeight:1.35, textAlign:"center" }}>
+            INSPIRE YOUTH FOR<br/>DEVELOPMENT
+          </div>
+          <div style={{ fontSize:8, fontWeight:600, color:"rgba(255,255,255,.52)", letterSpacing:".09em", textAlign:"center", lineHeight:1.4, textTransform:"uppercase" }}>
+            Inspire Management System (IMS)
+          </div>
         </div>
       </div>
+
+      {/* Home shortcut beneath logo */}
+      <div
+        className={`sidebar-home-link${page === "home" ? " active" : ""}`}
+        onClick={() => { setPage("home"); onClose(); }}
+        title="Home"
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => e.key === "Enter" && (setPage("home"), onClose())}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <span className="sidebar-home-link-label">Home</span>
+      </div>
+
+      {/* Collapse toggle — hidden on mobile via CSS */}
+      <div className="sidebar-toggle-row">
+        <button
+          type="button"
+          className="sidebar-toggle-btn"
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Quick Actions — always visible regardless of module */}
+      <div className="quick-actions-wrap">
+        <div className="nav-sec">Quick Actions</div>
+        <div className="quick-actions-section">
+          {QA("new_request","New Request","new_request")}
+          {QA("calendar","Apply for Leave","leave_apply")}
+          {QA("requests","My Requests","my_requests")}
+          {(isApprover||isAdmin) && QA("pending_approvals","Pending Approvals","pending_approvals")}
+          {QA("com","Messages","messages_center")}
+        </div>
+      </div>
+      <div className="sidebar-divider" />
 
       <div style={{ flex:1, overflowY:"auto", padding:"8px 0" }}>
         {isHome && <>
@@ -6832,35 +6964,45 @@ function SystemHome({ setPage, user }) {
       )}
 
       {visibleAnnouncements.length > 0 && (
-        <div className="card" style={{ marginBottom:18, background:"linear-gradient(145deg,#fffaf0 0%,#ffffff 100%)", border:"1px solid rgba(217,119,6,.14)" }}>
-          <div className="card-body" style={{ padding:"18px 20px" }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:12 }}>
-              <div>
-                <div style={{ fontFamily:"var(--serif)", fontSize:20, color:"var(--navy)", fontWeight:800 }}>HR Announcements</div>
-                <div style={{ color:"var(--g500)", fontSize:13, marginTop:4 }}>Latest internal updates shared with you.</div>
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPage("messages_center")}>
-                <AppButtonIcon name="com" tone="amber" size={13} /> Open Messages
-              </button>
-            </div>
-            <div style={{ display:"grid", gap:10 }}>
-              {visibleAnnouncements.map(item => (
-                <div key={item.id} style={{ padding:"14px 16px", borderRadius:18, background:"#fff", border:"1px solid rgba(217,119,6,.12)" }}>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
-                    <div style={{ fontWeight:700, color:"var(--navy)" }}>{_users.find(entry => entry.id === item.senderId)?.name || "HR"}</div>
-                    <div style={{ fontSize:11, color:"var(--g500)" }}>{fmt(item.timestamp)}</div>
+        <div style={{ marginBottom:18 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"var(--g500)", textTransform:"uppercase", letterSpacing:".1em" }}>HR Announcements</div>
+            {unreadAnnouncements > 0 && (
+              <span style={{ padding:"2px 8px", borderRadius:999, background:"#fef3c7", color:"#b45309", fontSize:10.5, fontWeight:800 }}>
+                {unreadAnnouncements} new
+              </span>
+            )}
+            <button onClick={() => setPage("messages_center")} style={{ marginLeft:"auto", fontSize:12, color:"var(--navy)", fontWeight:600, background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+              View all →
+            </button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {visibleAnnouncements.map((item, idx) => {
+              const senderName = _users.find(u => u.id === item.senderId)?.name || "HR";
+              const msgText = getAnnouncementDisplayMessage(item, user);
+              const isUnread = !item.readBy?.includes(user.id);
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => setPage("messages_center")}
+                  style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"12px 16px", borderRadius:14, background: idx === 0 ? "#fffbeb" : "#fff", border:`1px solid ${isUnread ? "rgba(245,158,11,.28)" : "var(--g200)"}`, cursor:"pointer", transition:"box-shadow .15s" }}
+                >
+                  <div style={{ width:8, height:8, borderRadius:"50%", background: isUnread ? "#f59e0b" : "var(--g300)", flexShrink:0, marginTop:5 }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                      <span style={{ fontSize:12.5, fontWeight:700, color:"var(--navy)" }}>{senderName}</span>
+                      <span style={{ fontSize:11, color:"#b45309", fontWeight:600 }}>
+                        {item.audienceType === "department" ? item.department : "All Staff"}
+                      </span>
+                      <span style={{ marginLeft:"auto", fontSize:11, color:"var(--g400)" }}>{fmt(item.timestamp)}</span>
+                    </div>
+                    <div style={{ fontSize:13, color:"var(--g700)", lineHeight:1.55, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+                      {msgText}
+                    </div>
                   </div>
-                  <div style={{ marginTop:6, fontSize:12, color:"#b45309", fontWeight:700 }}>
-                    {item.audienceType === "department" ? `${item.department} department` : "All staff"}
-                    {!item.readBy?.includes(user.id) && <span style={{ marginLeft:8, color:"#0f766e" }}>New</span>}
-                  </div>
-                  <div style={{ marginTop:8, color:"var(--g700)", lineHeight:1.6, fontSize:14, whiteSpace:"pre-wrap" }}>{getAnnouncementDisplayMessage(item, user)}</div>
                 </div>
-              ))}
-            </div>
-            <div style={{ marginTop:12, fontSize:12, color:"var(--g500)" }}>
-              {unreadAnnouncements} unread announcement{unreadAnnouncements !== 1 ? "s" : ""}.
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -12046,6 +12188,16 @@ export default function App() {
   const [projects,    setProjects]    = useState([]);
   const [requests,    setRequests]    = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar_collapsed") === "true"; } catch { return false; }
+  });
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed(v => {
+      const next = !v;
+      try { localStorage.setItem("sidebar_collapsed", String(next)); } catch {}
+      return next;
+    });
+  }, []);
   const [, setNotifTick] = useState(0);
   const bumpNotifTick = useCallback(() => setNotifTick(t => t + 1), []);
   const pageHistoryRef = useRef([]);
@@ -12921,9 +13073,9 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div className="layout">
-        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} draftCount={draftCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} draftCount={draftCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapsed} />
         {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
-        <div className="main">
+        <div className={`main${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
           <div className="topbar">
             <div className="topbar-title-wrap">
               <button className="hamburger-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle menu">
