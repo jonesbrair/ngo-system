@@ -185,10 +185,28 @@ export default function MessagesModule({
     });
   }, [announcementThread, dmThreads, groupThreads]);
 
-  const selectedThread = useMemo(
-    () => allThreads.find(t => t.id === selectedThreadId) || null,
-    [allThreads, selectedThreadId]
-  );
+  const selectedThread = useMemo(() => {
+    if (!selectedThreadId) return null;
+    // Check existing threads first
+    const found = allThreads.find(t => t.id === selectedThreadId);
+    if (found) return found;
+    // New DM with someone who has no messages yet — build a virtual thread
+    const person = directory.find(p => p.id === selectedThreadId);
+    if (person) {
+      return {
+        id:              person.id,
+        type:            "dm",
+        name:            person.name,
+        subtitle:        [person.position, person.dept].filter(Boolean).join(" · ") || "Staff",
+        lastMessage:     null,
+        lastMessageText: "",
+        lastMessageTs:   "",
+        unreadCount:     0,
+        partner:         person,
+      };
+    }
+    return null;
+  }, [allThreads, selectedThreadId, directory]);
 
   // ── Active messages for selected thread ──────────────────────────────────
   const activeMessages = useMemo(() => {
