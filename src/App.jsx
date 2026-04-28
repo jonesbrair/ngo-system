@@ -12476,6 +12476,8 @@ export default function App() {
   }, []);
   const [, setNotifTick] = useState(0);
   const bumpNotifTick = useCallback(() => setNotifTick(t => t + 1), []);
+  const [, setMsgTick] = useState(0);
+  const bumpMsgTick = useCallback(() => setMsgTick(t => t + 1), []);
   const pageHistoryRef = useRef([]);
 
   const setPage = useCallback((nextPage, options={}) => {
@@ -13047,9 +13049,75 @@ export default function App() {
       ]);
       saveState();
       refresh();
+      bumpMsgTick();
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [user, refresh]);
+  }, [user, refresh, bumpMsgTick]);
+
+  // Supabase Realtime — instant delivery for DMs and announcements
+  useEffect(() => {
+    if (!user) return;
+    const uid = user.id;
+
+    const msgChannel = supabase
+      .channel(`dm-changes-${uid}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "direct_messages" }, ({ new: row }) => {
+        if (row.sender_id !== uid && row.receiver_id !== uid) return;
+        if (_messages.find(m => m.id === row.id)) return;
+        _messages = [..._messages, {
+          id: row.id, senderId: row.sender_id, receiverId: row.receiver_id,
+          message: row.message, timestamp: row.timestamp, status: row.status || "delivered",
+        }];
+        saveState();
+        bumpMsgTick();
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "direct_messages" }, ({ new: row }) => {
+        let changed = false;
+        _messages = _messages.map(m => {
+          if (m.id !== row.id || m.status === row.status) return m;
+          changed = true;
+          return { ...m, status: row.status };
+        });
+        if (changed) { saveState(); bumpMsgTick(); }
+      })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") console.warn("[realtime-dm] channel error — check Supabase Realtime is enabled for direct_messages");
+      });
+
+    const annChannel = supabase
+      .channel(`ann-changes-${uid}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "announcements" }, ({ new: row }) => {
+        if (_announcements.find(a => a.id === row.id)) return;
+        _announcements = [{
+          id: row.id, senderId: row.sender_id,
+          audienceType: row.audience_type || "all", department: row.department || "",
+          message: row.message, timestamp: row.timestamp,
+          status: row.status || "delivered", readBy: Array.isArray(row.read_by) ? row.read_by : [],
+        }, ..._announcements];
+        saveState();
+        bumpMsgTick();
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "announcements" }, ({ new: row }) => {
+        let changed = false;
+        _announcements = _announcements.map(a => {
+          if (a.id !== row.id) return a;
+          const newReadBy = Array.isArray(row.read_by) ? row.read_by : a.readBy;
+          if (JSON.stringify(newReadBy) === JSON.stringify(a.readBy)) return a;
+          changed = true;
+          return { ...a, readBy: newReadBy };
+        });
+        if (changed) { saveState(); bumpMsgTick(); }
+      })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") console.warn("[realtime-ann] channel error — check Supabase Realtime is enabled for announcements");
+      });
+
+    return () => {
+      supabase.removeChannel(msgChannel);
+      supabase.removeChannel(annChannel);
+    };
+  }, [user?.id, bumpMsgTick]);
+
   useEffect(() => {
     if (!user) return;
     const freshUser = _users.find(item => item.id === user.id);
@@ -13296,6 +13364,7 @@ export default function App() {
               await Promise.all([fetchMessagesFromDB(), fetchAnnouncementsFromDB(), fetchNotificationsFromDB()]);
               saveState();
               refresh();
+              bumpMsgTick();
             }}
           />
         );
