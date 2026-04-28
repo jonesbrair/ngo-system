@@ -2346,9 +2346,13 @@ function deleteDMThread(currentUserId, partnerId) {
     !((m.senderId === currentUserId && m.receiverId === partnerId) ||
       (m.receiverId === currentUserId && m.senderId === partnerId))
   );
-  supabase.from("direct_messages").delete()
-    .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${currentUserId})`)
-    .then(({ error }) => { if (error) console.warn("[delete-dm-thread]", error.message); });
+  Promise.all([
+    supabase.from("direct_messages").delete().eq("sender_id", currentUserId).eq("receiver_id", partnerId),
+    supabase.from("direct_messages").delete().eq("sender_id", partnerId).eq("receiver_id", currentUserId),
+  ]).then(([r1, r2]) => {
+    if (r1.error) console.warn("[delete-dm-thread]", r1.error.message);
+    if (r2.error) console.warn("[delete-dm-thread]", r2.error.message);
+  });
 }
 function deleteMessageById(messageId) {
   _messages = _messages.filter(m => m.id !== messageId);
