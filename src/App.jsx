@@ -6587,13 +6587,12 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
   return (
     <div className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
       <div className="sidebar-logo">
-        <div className="logo-mark">
-          <img src={inspireLogo} alt="Inspire Youth For Development logo" />
+        <div className="logo-mark" style={{ flexShrink:0 }}>
+          <img src={inspireLogo} alt="IMS logo" />
         </div>
-        <div className="sidebar-logo-text" style={{ display:"flex", flexDirection:"column" }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#fff", letterSpacing:".06em", lineHeight:1.3, textTransform:"uppercase" }}>
-            Inspire Management System (IMS)
-          </div>
+        <div className="sidebar-logo-text">
+          <div style={{ fontSize:11, fontWeight:800, color:"#fff", letterSpacing:".04em", lineHeight:1.3, textTransform:"uppercase" }}>Inspire Management</div>
+          <div style={{ fontSize:10, fontWeight:600, color:"rgba(255,255,255,.65)", letterSpacing:".06em", textTransform:"uppercase", marginTop:2 }}>System (IMS)</div>
         </div>
       </div>
 
@@ -6789,7 +6788,7 @@ function SystemHome({ setPage, user }) {
         <div className="page-sub">Choose a system area to continue.</div>
       </div>
 
-      {hasAnything && (
+      {!!hasAnything && (
         <div className="card" style={{ marginBottom:18, border:"1px solid rgba(10,30,61,.12)", background:"linear-gradient(145deg,#f8fafc 0%,#ffffff 100%)" }}>
           <div style={{ padding:"16px 20px 0" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:14 }}>
@@ -6873,7 +6872,7 @@ function SystemHome({ setPage, user }) {
       {visibleAnnouncements.length > 0 && (
         <div style={{ marginBottom:18 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:"var(--g500)", textTransform:"uppercase", letterSpacing:".1em" }}>HR Announcements</div>
+            <div style={{ fontSize:11, fontWeight:700, color:"var(--g500)", textTransform:"uppercase", letterSpacing:".1em" }}>Announcements</div>
             {unreadAnnouncements > 0 && (
               <span style={{ padding:"2px 8px", borderRadius:999, background:"#fef3c7", color:"#b45309", fontSize:10.5, fontWeight:800 }}>
                 {unreadAnnouncements} new
