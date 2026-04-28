@@ -266,10 +266,12 @@ export default function MessagesModule({
     }
   }, [currentUser.id, selectedThread?.id, selectedThread?.type]);
 
+  const onRefreshRef = React.useRef(onRefresh);
+  useEffect(() => { onRefreshRef.current = onRefresh; }, [onRefresh]);
   useEffect(() => {
-    const t = window.setInterval(() => onRefresh(), 5000);
+    const t = window.setInterval(() => onRefreshRef.current(), 5000);
     return () => window.clearInterval(t);
-  }, [onRefresh]);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;

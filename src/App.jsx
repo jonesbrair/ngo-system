@@ -242,10 +242,11 @@ async function fetchMessagesFromDB() {
     .limit(2000);
   if (error) { console.warn("Supabase messages error:", error.message); return; }
   if (!data?.length) return;
+  let msgChanged = false;
   data.forEach(row => {
     const exists = _messages.find(m => m.id === row.id);
     if (exists) {
-      if (row.status === "read") exists.status = "read";
+      if (row.status === "read" && exists.status !== "read") { exists.status = "read"; msgChanged = true; }
     } else {
       _messages.push({
         id:         row.id,
@@ -255,8 +256,10 @@ async function fetchMessagesFromDB() {
         timestamp:  row.timestamp,
         status:     row.status || "delivered",
       });
+      msgChanged = true;
     }
   });
+  if (msgChanged) _messages = [..._messages];
 }
 async function fetchAnnouncementsFromDB() {
   const { data, error } = await supabase
@@ -266,11 +269,12 @@ async function fetchAnnouncementsFromDB() {
     .limit(500);
   if (error) { console.warn("Supabase announcements error:", error.message); return; }
   if (!data?.length) return;
+  let annChanged = false;
   data.forEach(row => {
     const exists = _announcements.find(a => a.id === row.id);
     if (exists) {
       const dbReadBy = Array.isArray(row.read_by) ? row.read_by : [];
-      dbReadBy.forEach(uid => { if (!exists.readBy.includes(uid)) exists.readBy.push(uid); });
+      dbReadBy.forEach(uid => { if (!exists.readBy.includes(uid)) { exists.readBy.push(uid); annChanged = true; } });
     } else {
       _announcements.push({
         id:           row.id,
@@ -282,8 +286,10 @@ async function fetchAnnouncementsFromDB() {
         status:       row.status       || "delivered",
         readBy:       Array.isArray(row.read_by) ? row.read_by : [],
       });
+      annChanged = true;
     }
   });
+  if (annChanged) _announcements = [..._announcements];
 }
 
 const APP_NAME = "INSPIRE YOUTH";
@@ -2282,7 +2288,7 @@ function sendDirectMessage(senderId, receiverId, message) {
   if (!sender || !receiver || !cleanMessage) return { ok:false, message:"Recipient and message are required." };
   if (!canDirectMessageUser(sender, receiver)) return { ok:false, message:"You do not have permission to message this user." };
   const entry = { id:uid(), senderId, receiverId, message:cleanMessage, timestamp:ts(), status:"delivered" };
-  _messages.push(entry);
+  _messages = [..._messages, entry];
   supabase.from("direct_messages").insert({
     id: entry.id, sender_id: senderId, receiver_id: receiverId,
     message: cleanMessage, timestamp: entry.timestamp, status: "delivered",
@@ -2323,7 +2329,7 @@ function sendAnnouncement(senderId, audienceType, department, message) {
     status: "delivered",
     readBy: [senderId],
   };
-  _announcements.unshift(entry);
+  _announcements = [entry, ..._announcements];
   supabase.from("announcements").insert({
     id: entry.id, sender_id: senderId,
     audience_type: entry.audienceType, department: entry.department || null,
