@@ -2341,6 +2341,25 @@ function sendAnnouncement(senderId, audienceType, department, message) {
     .forEach(candidate => addNotif(candidate.id, `${sender.name} posted an announcement`, null));
   return { ok:true, entry };
 }
+function deleteDMThread(currentUserId, partnerId) {
+  _messages = _messages.filter(m =>
+    !((m.senderId === currentUserId && m.receiverId === partnerId) ||
+      (m.receiverId === currentUserId && m.senderId === partnerId))
+  );
+  supabase.from("direct_messages").delete()
+    .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${currentUserId})`)
+    .then(({ error }) => { if (error) console.warn("[delete-dm-thread]", error.message); });
+}
+function deleteMessageById(messageId) {
+  _messages = _messages.filter(m => m.id !== messageId);
+  supabase.from("direct_messages").delete().eq("id", messageId)
+    .then(({ error }) => { if (error) console.warn("[delete-msg]", error.message); });
+}
+function deleteAnnouncementById(announcementId) {
+  _announcements = _announcements.filter(a => a.id !== announcementId);
+  supabase.from("announcements").delete().eq("id", announcementId)
+    .then(({ error }) => { if (error) console.warn("[delete-ann]", error.message); });
+}
 function markAnnouncementsRead(userId) {
   const targetUser = _users.find(u => u.id === userId);
   if (!targetUser) return false;
@@ -6704,7 +6723,7 @@ function SystemHome({ setPage, user }) {
 
   const mr = getModuleRole(user);
   const isAdmin = mr === "admin";
-  const visibleAnnouncements = getRelevantAnnouncementsForUser(user).slice(0, 3);
+  const visibleAnnouncements = getRelevantAnnouncementsForUser(user).slice(0, 1);
   const unreadAnnouncements = getRelevantAnnouncementsForUser(user).filter(item => !item.readBy?.includes(user.id)).length;
 
   // ── Active Workflows widget data ─────────────────────────────────────────────
@@ -13360,6 +13379,9 @@ export default function App() {
               });
               if (changed) syncState();
             }}
+            onDeleteDMThread={(partnerId) => { deleteDMThread(user.id, partnerId); syncState(); bumpMsgTick(); }}
+            onDeleteMessage={(messageId) => { deleteMessageById(messageId); syncState(); bumpMsgTick(); }}
+            onDeleteAnnouncement={(announcementId) => { deleteAnnouncementById(announcementId); syncState(); bumpMsgTick(); }}
             onRefresh={async () => {
               await Promise.all([fetchMessagesFromDB(), fetchAnnouncementsFromDB(), fetchNotificationsFromDB()]);
               saveState();

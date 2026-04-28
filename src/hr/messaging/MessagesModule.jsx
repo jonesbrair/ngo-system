@@ -42,6 +42,9 @@ export default function MessagesModule({
   onMarkAnnouncementsRead,
   onAcknowledgeAnnouncement,
   onRefresh,
+  onDeleteDMThread,
+  onDeleteMessage,
+  onDeleteAnnouncement,
 }) {
   // ── Core state ──────────────────────────────────────────────────────────────
   const [selectedThreadId, setSelectedThreadId] = useState(
@@ -400,6 +403,31 @@ export default function MessagesModule({
     setToast("Acknowledged.");
   }, [onAcknowledgeAnnouncement, onMarkAnnouncementsRead]);
 
+  const handleDeleteThread = useCallback((threadId) => {
+    const thread = allThreads.find(t => t.id === threadId);
+    if (!thread) return;
+    if (thread.type === "group") {
+      setGroups(prev => prev.filter(g => g.id !== threadId));
+      setGroupMessages(prev => { const n = { ...prev }; delete n[threadId]; return n; });
+      const all = loadGroups().filter(g => g.id !== threadId);
+      saveGroups(all);
+      try { localStorage.removeItem(groupMsgKey(threadId)); } catch {}
+    } else if (thread.type === "dm") {
+      if (onDeleteDMThread) onDeleteDMThread(threadId);
+    }
+    if (selectedThreadId === threadId) setSelectedThreadId(null);
+    setToast("Chat deleted.");
+  }, [allThreads, selectedThreadId, onDeleteDMThread]);
+
+  const handleDeleteMessage = useCallback((messageId) => {
+    if (onDeleteMessage) onDeleteMessage(messageId);
+  }, [onDeleteMessage]);
+
+  const handleDeleteAnnouncement = useCallback((announcementId) => {
+    if (onDeleteAnnouncement) onDeleteAnnouncement(announcementId);
+    setToast("Announcement deleted.");
+  }, [onDeleteAnnouncement]);
+
   const totalUnread =
     (unreadCount || 0) +
     groupThreads.reduce((s, g) => s + (g.unreadCount || 0), 0) +
@@ -463,6 +491,9 @@ export default function MessagesModule({
           onChangeAnnDept={setAnnDept}
           departments={departments}
           onAcknowledge={handleAcknowledge}
+          onDeleteThread={handleDeleteThread}
+          onDeleteMessage={handleDeleteMessage}
+          onDeleteAnnouncement={handleDeleteAnnouncement}
         />
       </div>
     </div>

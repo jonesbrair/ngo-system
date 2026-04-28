@@ -108,7 +108,7 @@ function ThreadAvatar({ thread, size = 44 }) {
   );
 }
 
-function ThreadRow({ thread, isActive, isPinned, onSelect, onPin }) {
+function ThreadRow({ thread, isActive, isPinned, onSelect, onPin, onDelete }) {
   const [hover, setHover]   = useState(false);
   const [menu,  setMenu]    = useState(false);
   const menuRef = useRef(null);
@@ -181,7 +181,7 @@ function ThreadRow({ thread, isActive, isPinned, onSelect, onPin }) {
         </div>
       )}
       {menu && (
-        <div ref={menuRef} style={{ position: "absolute", right: 12, top: "100%", zIndex: 999, background: "#fff", borderRadius: 12, boxShadow: "0 8px 28px rgba(15,23,42,.14)", border: "1px solid #e2e8f0", padding: "4px 0", minWidth: 150 }}>
+        <div ref={menuRef} style={{ position: "absolute", right: 12, top: "100%", zIndex: 999, background: "#fff", borderRadius: 12, boxShadow: "0 8px 28px rgba(15,23,42,.14)", border: "1px solid #e2e8f0", padding: "4px 0", minWidth: 160 }}>
           <div onClick={e => { e.stopPropagation(); onPin(thread.id); setMenu(false); }}
             style={{ padding: "9px 14px", fontSize: 13, color: "#1e293b", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -189,6 +189,15 @@ function ThreadRow({ thread, isActive, isPinned, onSelect, onPin }) {
             </svg>
             {isPinned ? "Unpin" : "Pin to top"}
           </div>
+          {thread.type !== "channel" && onDelete && (
+            <div onClick={e => { e.stopPropagation(); if (window.confirm(`Delete this ${thread.type === "group" ? "group" : "chat"}? This cannot be undone.`)) { onDelete(thread.id); setMenu(false); } }}
+              style={{ padding: "9px 14px", fontSize: 13, color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #f1f5f9" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+              Delete {thread.type === "group" ? "group" : "chat"}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -346,7 +355,7 @@ const FILTERS = [
   { key: "channel",      label: "Channels" },
 ];
 
-function Sidebar({ allThreads, pinnedIds, selectedThreadId, onSelectThread, onPinThread, onCreateGroup, allowedRecipients }) {
+function Sidebar({ allThreads, pinnedIds, selectedThreadId, onSelectThread, onPinThread, onDeleteThread, onCreateGroup, allowedRecipients }) {
   const [search,  setSearch]  = useState("");
   const [filter,  setFilter]  = useState("all");
   const [compose, setCompose] = useState(false);
@@ -431,7 +440,7 @@ function Sidebar({ allThreads, pinnedIds, selectedThreadId, onSelectThread, onPi
               Pinned
             </div>
             {pinned.map(t => (
-              <ThreadRow key={t.id} thread={t} isActive={t.id === selectedThreadId} isPinned onSelect={onSelectThread} onPin={onPinThread} />
+              <ThreadRow key={t.id} thread={t} isActive={t.id === selectedThreadId} isPinned onSelect={onSelectThread} onPin={onPinThread} onDelete={onDeleteThread} />
             ))}
             <div style={{ margin: "6px 14px", height: 1, background: "#f1f5f9" }} />
           </>
@@ -446,7 +455,7 @@ function Sidebar({ allThreads, pinnedIds, selectedThreadId, onSelectThread, onPi
         )}
 
         {unpinned.map(t => (
-          <ThreadRow key={t.id} thread={t} isActive={t.id === selectedThreadId} isPinned={false} onSelect={onSelectThread} onPin={onPinThread} />
+          <ThreadRow key={t.id} thread={t} isActive={t.id === selectedThreadId} isPinned={false} onSelect={onSelectThread} onPin={onPinThread} onDelete={onDeleteThread} />
         ))}
       </div>
     </div>
@@ -455,7 +464,7 @@ function Sidebar({ allThreads, pinnedIds, selectedThreadId, onSelectThread, onPi
 
 // ── MessageBubble ─────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, isMine, isGroup, showSender, showAvatar, onReply }) {
+function MessageBubble({ msg, isMine, isGroup, showSender, showAvatar, onReply, onDelete }) {
   const [hover, setHover] = useState(false);
   const reply  = parseReplyPrefix(msg.message);
   const body   = reply ? reply.body : msg.message;
@@ -542,14 +551,23 @@ function MessageBubble({ msg, isMine, isGroup, showSender, showAvatar, onReply }
         </div>
       </div>
 
-      {/* Hover reply button */}
-      {hover && onReply && (
-        <button
-          onClick={() => onReply(msg)}
-          style={{ position: "absolute", [isMine ? "left" : "right"]: isMine ? 40 : 40, bottom: 20, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", fontSize: 11, color: "#64748b", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, boxShadow: "0 2px 8px rgba(0,0,0,.08)", whiteSpace: "nowrap" }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
-          Reply
-        </button>
+      {/* Hover actions */}
+      {hover && (
+        <div style={{ position: "absolute", [isMine ? "left" : "right"]: 40, bottom: 20, display: "flex", gap: 4 }}>
+          {onReply && (
+            <button onClick={() => onReply(msg)}
+              style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", fontSize: 11, color: "#64748b", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, boxShadow: "0 2px 8px rgba(0,0,0,.08)", whiteSpace: "nowrap" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+              Reply
+            </button>
+          )}
+          {isMine && onDelete && (
+            <button onClick={() => { if (window.confirm("Delete this message?")) onDelete(msg.id); }}
+              style={{ background: "#fff", border: "1px solid #fecaca", borderRadius: 8, padding: "4px 8px", fontSize: 11, color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, boxShadow: "0 2px 8px rgba(0,0,0,.08)" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4h6v2"/></svg>
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -557,7 +575,7 @@ function MessageBubble({ msg, isMine, isGroup, showSender, showAvatar, onReply }
 
 // ── AnnouncementBubble ────────────────────────────────────────────────────────
 
-function AnnouncementBubble({ msg, currentUserId, canPost, onAcknowledge }) {
+function AnnouncementBubble({ msg, currentUserId, canPost, onAcknowledge, onDelete }) {
   const hasAcked    = msg.readBy?.includes(currentUserId);
   const ackCount    = msg.readBy?.length || 0;
   const audienceTag = msg.audienceType === "department" && msg.department
@@ -615,6 +633,13 @@ function AnnouncementBubble({ msg, currentUserId, canPost, onAcknowledge }) {
                   Acknowledge
                 </button>
           }
+          {canPost && onDelete && (
+            <button onClick={() => { if (window.confirm("Delete this announcement permanently?")) onDelete(msg.id); }}
+              style={{ fontSize: 11, color: "#ef4444", background: "none", border: "1px solid #fecaca", borderRadius: 7, padding: "3px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4h6v2"/></svg>
+              Delete
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -774,7 +799,7 @@ function AnnouncementComposer({ draft, onChangeDraft, annScope, onChangeAnnScope
 
 // ── ChatPanel ─────────────────────────────────────────────────────────────────
 
-function ChatPanel({ selectedThread, activeMessages, currentUser, canPublishAnnouncements, draft, onChangeDraft, onSend, isUploading, replyTo, onSetReplyTo, onClearReplyTo, annScope, onChangeAnnScope, annDept, onChangeAnnDept, departments, onAcknowledge }) {
+function ChatPanel({ selectedThread, activeMessages, currentUser, canPublishAnnouncements, draft, onChangeDraft, onSend, isUploading, replyTo, onSetReplyTo, onClearReplyTo, annScope, onChangeAnnScope, annDept, onChangeAnnDept, departments, onAcknowledge, onDeleteMessage, onDeleteAnnouncement }) {
   const bottomRef = useRef(null);
   const isChannel = selectedThread?.type === "channel";
   const isGroup   = selectedThread?.type === "group";
@@ -915,6 +940,7 @@ function ChatPanel({ selectedThread, activeMessages, currentUser, canPublishAnno
                 currentUserId={currentUser.id}
                 canPost={canPublishAnnouncements}
                 onAcknowledge={onAcknowledge}
+                onDelete={onDeleteAnnouncement}
               />
             );
           }
@@ -936,6 +962,7 @@ function ChatPanel({ selectedThread, activeMessages, currentUser, canPublishAnno
               showSender={showSender}
               showAvatar={showAvatar}
               onReply={!isChannel ? onSetReplyTo : null}
+              onDelete={onDeleteMessage}
             />
           );
         })}
@@ -975,6 +1002,9 @@ export default function ChatWindow({
   onChangeAnnDept,
   departments,
   onAcknowledge,
+  onDeleteThread,
+  onDeleteMessage,
+  onDeleteAnnouncement,
 }) {
   return (
     <div style={{ display: "flex", height: "100%", borderRadius: 20, border: "1px solid #e2e8f0", overflow: "hidden", boxShadow: "0 4px 28px rgba(15,23,42,.08)", background: "#fff" }}>
@@ -984,6 +1014,7 @@ export default function ChatWindow({
         selectedThreadId={selectedThreadId}
         onSelectThread={onSelectThread}
         onPinThread={onPinThread}
+        onDeleteThread={onDeleteThread}
         onCreateGroup={onCreateGroup}
         allowedRecipients={allowedRecipients}
       />
@@ -1005,6 +1036,8 @@ export default function ChatWindow({
         onChangeAnnDept={onChangeAnnDept}
         departments={departments}
         onAcknowledge={onAcknowledge}
+        onDeleteMessage={onDeleteMessage}
+        onDeleteAnnouncement={onDeleteAnnouncement}
       />
     </div>
   );
