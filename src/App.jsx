@@ -6590,11 +6590,8 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
         <div className="logo-mark">
           <img src={inspireLogo} alt="Inspire Youth For Development logo" />
         </div>
-        <div className="sidebar-logo-text" style={{ display:"flex", flexDirection:"column", gap:3 }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"#fff", letterSpacing:".03em", lineHeight:1.35, textAlign:"center" }}>
-            INSPIRE YOUTH FOR<br/>DEVELOPMENT
-          </div>
-          <div style={{ fontSize:8, fontWeight:600, color:"rgba(255,255,255,.52)", letterSpacing:".09em", textAlign:"center", lineHeight:1.4, textTransform:"uppercase" }}>
+        <div className="sidebar-logo-text" style={{ display:"flex", flexDirection:"column" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#fff", letterSpacing:".06em", lineHeight:1.3, textTransform:"uppercase" }}>
             Inspire Management System (IMS)
           </div>
         </div>
