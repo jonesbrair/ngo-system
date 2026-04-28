@@ -240,8 +240,8 @@ async function fetchMessagesFromDB() {
     .select("*")
     .order("timestamp", { ascending: true })
     .limit(2000);
-  if (error) { console.warn("Supabase messages error:", error.message); return; }
-  if (!data?.length) return;
+  if (error) { console.error("[DM FETCH FAILED]", error.message, error); return; }
+  if (!data?.length) { console.log("[DM FETCH] 0 rows returned — check table exists and RLS policies"); return; }
   let msgChanged = false;
   data.forEach(row => {
     const exists = _messages.find(m => m.id === row.id);
@@ -267,8 +267,8 @@ async function fetchAnnouncementsFromDB() {
     .select("*")
     .order("timestamp", { ascending: false })
     .limit(500);
-  if (error) { console.warn("Supabase announcements error:", error.message); return; }
-  if (!data?.length) return;
+  if (error) { console.error("[ANN FETCH FAILED]", error.message, error); return; }
+  if (!data?.length) { console.log("[ANN FETCH] 0 rows returned — check table exists and RLS policies"); return; }
   let annChanged = false;
   data.forEach(row => {
     const exists = _announcements.find(a => a.id === row.id);
@@ -2292,7 +2292,7 @@ function sendDirectMessage(senderId, receiverId, message) {
   supabase.from("direct_messages").insert({
     id: entry.id, sender_id: senderId, receiver_id: receiverId,
     message: cleanMessage, timestamp: entry.timestamp, status: "delivered",
-  }).then(({ error }) => { if (error) console.warn("[msg]", error.message); });
+  }).then(({ error }) => { if (error) console.error("[DM INSERT FAILED]", error.message, error); });
   addNotif(receiverId, `New message from ${sender.name}`, null);
   return { ok:true, entry };
 }
@@ -2335,7 +2335,7 @@ function sendAnnouncement(senderId, audienceType, department, message) {
     audience_type: entry.audienceType, department: entry.department || null,
     message: cleanMessage, timestamp: entry.timestamp,
     status: "delivered", read_by: entry.readBy,
-  }).then(({ error }) => { if (error) console.warn("[ann]", error.message); });
+  }).then(({ error }) => { if (error) console.error("[ANN INSERT FAILED]", error.message, error); });
   _users
     .filter(candidate => candidate.id !== senderId && isAnnouncementVisibleToUser(entry, candidate))
     .forEach(candidate => addNotif(candidate.id, `${sender.name} posted an announcement`, null));
