@@ -6586,7 +6586,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
   const isAdmin = user.role === "admin";
   const mr = getModuleRole(user);
   const messageUnreadCount = getUnreadMessagesCountForUser(user);
-  const canAccessFinancialReports = hasDashboardAccess(user, "financial_reports");
+  const canAccessFinancialReports = hasDashboardAccess(user, "financial_reports") || user.role === "executive_director" || user.role === "admin";
   const canAccessPaymentQueue = hasDashboardAccess(user, "payment_queue");
   const financePages = new Set([
     "dashboard","new_request","my_requests","my_drafts","pending_approvals","approval_history",
@@ -6783,7 +6783,7 @@ function SystemHome({ setPage, user }) {
     tone:"teal",
   });
 
-  if (hasDashboardAccess(user, "financial_reports")) {
+  if (hasDashboardAccess(user, "financial_reports") || user.role === "executive_director" || user.role === "admin") {
     homeCards.splice(2, 0, {
       key:"fin-reports",
       icon:"reports",
@@ -13458,7 +13458,8 @@ export default function App() {
         return <BudgetManagement projects={projects} requests={requests} onSaveProject={handleSaveProject} onDeleteProject={handleDeleteProject} onSaveActivity={handleSaveActivity} onDeleteActivity={handleDeleteActivity} />;
 
       case "financial_reports":
-        if (!hasDashboardAccess(user, "financial_reports")) return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
+        if (!hasDashboardAccess(user, "financial_reports") && user.role !== "executive_director" && user.role !== "admin")
+          return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
         return <FinancialReports projects={projects} requests={requests} />;
 
       case "all_requests":
