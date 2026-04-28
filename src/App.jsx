@@ -225,11 +225,10 @@ async function fetchNotificationsFromDB() {
       _notifications.push({
         id:        row.id,
         userId:    row.user_id,
-        message:   row.message,
-        requestId: row.request_id || null,
-        read:      row.is_read   || false,
+        message:   row.body || row.title || "",
+        requestId: row.reference_id || null,
+        read:      row.is_read      || false,
         at:        row.created_at,
-        page:      row.page      || null,
       });
     }
   });
@@ -2225,12 +2224,13 @@ function addNotif(userId, message, requestId, meta={}) {
   // Persist cross-device — fire and forget
   supabase.from("notifications").insert({
     id,
-    user_id:    userId,
-    message,
-    request_id: requestId || null,
-    is_read:    false,
-    created_at: at,
-    page:       meta.page || null,
+    user_id:      userId,
+    title:        message,
+    body:         message,
+    type:         meta.type || "general",
+    reference_id: requestId || null,
+    is_read:      false,
+    created_at:   at,
   }).then(({ error }) => { if (error) console.warn("[notif]", error.message); });
 }
 function getNotificationTargetPage(user, notification) {
