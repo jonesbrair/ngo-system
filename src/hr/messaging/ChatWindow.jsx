@@ -265,14 +265,19 @@ function ComposePanel({ allowedRecipients, onStartDM, onCreateGroup, onClose }) 
         {tab === "group" && (
           <>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: "#475569", marginBottom: 5 }}>Group name</div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: groupMembers.length > 0 && !groupName.trim() ? "#b45309" : "#475569", marginBottom: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                Group name
+                {groupMembers.length > 0 && !groupName.trim() && (
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#b45309" }}>← required to continue</span>
+                )}
+              </div>
               <input
                 type="text"
                 placeholder="e.g. Finance Team, Project Alpha…"
                 value={groupName}
                 onChange={e => setGroupName(e.target.value)}
                 autoFocus
-                style={{ padding: "9px 12px", borderRadius: 10, border: "1.5px solid #bfdbfe", fontSize: 13, color: "#1e293b", background: "#fff", outline: "none", width: "100%", boxSizing: "border-box", fontFamily: "var(--sans)" }}
+                style={{ padding: "9px 12px", borderRadius: 10, border: `1.5px solid ${groupMembers.length > 0 && !groupName.trim() ? "#fbbf24" : "#bfdbfe"}`, fontSize: 13, color: "#1e293b", background: groupMembers.length > 0 && !groupName.trim() ? "#fffbeb" : "#fff", outline: "none", width: "100%", boxSizing: "border-box", fontFamily: "var(--sans)", transition: "border-color .15s, background .15s" }}
               />
             </div>
             <div>
@@ -311,9 +316,17 @@ function ComposePanel({ allowedRecipients, onStartDM, onCreateGroup, onClose }) 
                 style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                 Cancel
               </button>
-              <button onClick={() => { if (canCreate) { onCreateGroup(groupName, groupMembers); onClose(); } }} disabled={!canCreate}
-                style={{ flex: 2, padding: "9px 0", borderRadius: 10, border: "none", background: canCreate ? "#1e40af" : "#e2e8f0", color: canCreate ? "#fff" : "#94a3b8", fontSize: 13, fontWeight: 700, cursor: canCreate ? "pointer" : "not-allowed", transition: "all .15s" }}>
-                {canCreate ? `Create "${groupName}"` : "Create Group"}
+              <button
+                onClick={() => { if (canCreate) { onCreateGroup(groupName, groupMembers); onClose(); } }}
+                disabled={!canCreate}
+                style={{ flex: 2, padding: "9px 0", borderRadius: 10, border: "none", background: canCreate ? "#1e40af" : "#e2e8f0", color: canCreate ? "#fff" : "#94a3b8", fontSize: 12.5, fontWeight: 700, cursor: canCreate ? "pointer" : "not-allowed", transition: "all .15s" }}>
+                {canCreate
+                  ? `Create "${groupName}"`
+                  : groupMembers.length > 0 && !groupName.trim()
+                    ? "Enter a group name ↑"
+                    : groupName.trim() && groupMembers.length === 0
+                      ? "Select at least one member"
+                      : "Create Group"}
               </button>
             </div>
           </>
