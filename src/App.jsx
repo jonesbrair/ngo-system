@@ -267,27 +267,36 @@ async function fetchAnnouncementsFromDB() {
     .order("timestamp", { ascending: false })
     .limit(500);
   if (error) { console.error("[ANN FETCH FAILED]", error.message, error); return; }
-  if (!data?.length) { console.log("[ANN FETCH] 0 rows returned — check table exists and RLS policies"); return; }
   let annChanged = false;
-  data.forEach(row => {
-    const exists = _announcements.find(a => a.id === row.id);
-    if (exists) {
-      const dbReadBy = Array.isArray(row.read_by) ? row.read_by : [];
-      dbReadBy.forEach(uid => { if (!exists.readBy.includes(uid)) { exists.readBy.push(uid); annChanged = true; } });
-    } else {
-      _announcements.push({
-        id:           row.id,
-        senderId:     row.sender_id,
-        audienceType: row.audience_type || "all",
-        department:   row.department   || "",
-        message:      row.message,
-        timestamp:    row.timestamp,
-        status:       row.status       || "delivered",
-        readBy:       Array.isArray(row.read_by) ? row.read_by : [],
-      });
-      annChanged = true;
-    }
-  });
+  if (data?.length) {
+    const dbIds = new Set(data.map(r => r.id));
+    // Remove locally any announcement deleted from DB
+    const before = _announcements.length;
+    _announcements = _announcements.filter(a => dbIds.has(a.id));
+    if (_announcements.length !== before) annChanged = true;
+    data.forEach(row => {
+      const exists = _announcements.find(a => a.id === row.id);
+      if (exists) {
+        const dbReadBy = Array.isArray(row.read_by) ? row.read_by : [];
+        dbReadBy.forEach(uid => { if (!exists.readBy.includes(uid)) { exists.readBy.push(uid); annChanged = true; } });
+      } else {
+        _announcements.push({
+          id:           row.id,
+          senderId:     row.sender_id,
+          audienceType: row.audience_type || "all",
+          department:   row.department   || "",
+          message:      row.message,
+          timestamp:    row.timestamp,
+          status:       row.status       || "delivered",
+          readBy:       Array.isArray(row.read_by) ? row.read_by : [],
+        });
+        annChanged = true;
+      }
+    });
+  } else {
+    // DB returned nothing — all announcements were deleted
+    if (_announcements.length) { _announcements = []; annChanged = true; }
+  }
   if (annChanged) _announcements = [..._announcements];
 }
 
@@ -13130,6 +13139,11 @@ export default function App() {
           return { ...a, readBy: newReadBy };
         });
         if (changed) { saveState(); bumpMsgTick(); }
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "announcements" }, ({ old: row }) => {
+        const before = _announcements.length;
+        _announcements = _announcements.filter(a => a.id !== row.id);
+        if (_announcements.length !== before) { saveState(); bumpMsgTick(); }
       })
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR") console.warn("[realtime-ann] channel error — check Supabase Realtime is enabled for announcements");
