@@ -6896,7 +6896,6 @@ function SystemHome({ setPage, user }) {
                   <div style={{ width:8, height:8, borderRadius:"50%", background: isUnread ? "#f59e0b" : "var(--g300)", flexShrink:0, marginTop:5 }} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                      <span style={{ fontSize:12.5, fontWeight:700, color:"var(--navy)" }}>{senderName}</span>
                       <span style={{ fontSize:11, color:"#b45309", fontWeight:600 }}>
                         {item.audienceType === "department" ? item.department : "All Staff"}
                       </span>
