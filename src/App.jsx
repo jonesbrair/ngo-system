@@ -2218,7 +2218,7 @@ function addLog(requestId, userId, action, note="") {
   _logs.push({ id:uid(), requestId, userId, action, note, at:ts() });
 }
 function addNotif(userId, message, requestId, meta={}) {
-  const id = uid();
+  const id = crypto.randomUUID();
   const at = ts();
   _notifications.push({ id, userId, message, requestId, read:false, at, ...meta });
   // Persist cross-device — fire and forget
