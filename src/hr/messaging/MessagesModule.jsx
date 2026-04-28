@@ -1,36 +1,27 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { IconBadge } from "../../uiIcons";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
-import ConversationList from "./ConversationList";
 import ChatWindow from "./ChatWindow";
 
-// ─── Group / attachment localStorage helpers ──────────────────────────────────
-const GROUPS_KEY = "ims-groups";
-const groupMsgKey = (id) => `ims-group-messages-${id}`;
-const groupReadKey = (uid, gid) => `ims-group-read-${uid}-${gid}`;
+const GROUPS_KEY      = "ims-groups";
+const pinnedKey       = (uid) => `ims-pinned-threads-${uid}`;
+const groupMsgKey     = (id)  => `ims-group-messages-${id}`;
+const groupReadKey    = (uid, gid) => `ims-group-read-${uid}-${gid}`;
+const lastThreadKey   = (uid) => `ims-last-thread-${uid}`;
 
-function loadGroups() {
-  try { return JSON.parse(localStorage.getItem(GROUPS_KEY) || "[]"); } catch { return []; }
-}
-function saveGroups(groups) {
-  try { localStorage.setItem(GROUPS_KEY, JSON.stringify(groups)); } catch {}
-}
-function loadGroupMessages(groupId) {
-  try { return JSON.parse(localStorage.getItem(groupMsgKey(groupId)) || "[]"); } catch { return []; }
-}
-function saveGroupMessages(groupId, messages) {
-  try { localStorage.setItem(groupMsgKey(groupId), JSON.stringify(messages)); } catch {}
-}
-function getGroupReadTs(uid, gid) {
-  try { return localStorage.getItem(groupReadKey(uid, gid)) || ""; } catch { return ""; }
-}
-function setGroupReadTs(uid, gid) {
-  try { localStorage.setItem(groupReadKey(uid, gid), new Date().toISOString()); } catch {}
-}
+function lsGet(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } }
+function lsSet(k, v)   { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+function lsStr(k)      { try { return localStorage.getItem(k) || ""; } catch { return ""; } }
+function lsStrSet(k,v) { try { localStorage.setItem(k, v); } catch {} }
 
-function getThreadStorageKey(userId) {
-  return `ims-messages-last-thread-${userId}`;
-}
+function loadGroups()              { return lsGet(GROUPS_KEY, []); }
+function saveGroups(g)             { lsSet(GROUPS_KEY, g); }
+function loadGroupMessages(id)     { return lsGet(groupMsgKey(id), []); }
+function saveGroupMessages(id, ms) { lsSet(groupMsgKey(id), ms); }
+function getGroupReadTs(uid, gid)  { return lsStr(groupReadKey(uid, gid)); }
+function setGroupReadTs(uid, gid)  { lsStrSet(groupReadKey(uid, gid), new Date().toISOString()); }
+function loadPinned(uid)           { return lsGet(pinnedKey(uid), []); }
+function savePinned(uid, ids)      { lsSet(pinnedKey(uid), ids); }
+
 function makePersonMap(people) {
   return people.reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
 }
@@ -49,200 +40,232 @@ export default function MessagesModule({
   onSendAnnouncement,
   onMarkConversationRead,
   onMarkAnnouncementsRead,
+  onAcknowledgeAnnouncement,
   onRefresh,
 }) {
-  const threadStorageKey = getThreadStorageKey(currentUser.id);
-
-  // ── DM state ─────────────────────────────────────────────────────────────
-  const [selectedRecipientId, setSelectedRecipientId] = useState(
-    () => (typeof window !== "undefined" ? localStorage.getItem(threadStorageKey) || "" : "")
+  // ── Core state ──────────────────────────────────────────────────────────────
+  const [selectedThreadId, setSelectedThreadId] = useState(
+    () => lsStr(lastThreadKey(currentUser.id))
   );
-  const [composeRecipientId, setComposeRecipientId] = useState("");
-  const [composeDraft, setComposeDraft] = useState("");
-  const [replyDraft, setReplyDraft] = useState("");
-
-  // ── Group state ───────────────────────────────────────────────────────────
   const [groups, setGroups] = useState(
-    () => loadGroups().filter((g) => g.members.includes(currentUser.id))
+    () => loadGroups().filter(g => g.members.includes(currentUser.id))
   );
   const [groupMessages, setGroupMessages] = useState(() => {
     const all = {};
-    loadGroups()
-      .filter((g) => g.members.includes(currentUser.id))
-      .forEach((g) => { all[g.id] = loadGroupMessages(g.id); });
+    loadGroups().filter(g => g.members.includes(currentUser.id))
+      .forEach(g => { all[g.id] = loadGroupMessages(g.id); });
     return all;
   });
-  const [selectedGroupId, setSelectedGroupId] = useState(null);
-  const [groupReplyDraft, setGroupReplyDraft] = useState("");
+  const [pinnedIds, setPinnedIds] = useState(() => loadPinned(currentUser.id));
 
-  // ── View mode: "dm" | "group" ─────────────────────────────────────────────
-  const [viewMode, setViewMode] = useState("dm");
+  // Per-thread-type drafts
+  const [dmDraft,    setDmDraft]    = useState("");
+  const [groupDraft, setGroupDraft] = useState("");
+  const [annDraft,   setAnnDraft]   = useState("");
+  const [annScope,   setAnnScope]   = useState("all");
+  const [annDept,    setAnnDept]    = useState("");
 
-  // ── Announcement compose state ────────────────────────────────────────────
-  const [announcementScope, setAnnouncementScope] = useState("all");
-  const [announcementDepartment, setAnnouncementDepartment] = useState("");
-  const [announcementDraft, setAnnouncementDraft] = useState("");
+  // Reply-to
+  const [replyTo, setReplyTo] = useState(null);
 
-  const [toast, setToast] = useState("");
+  const [toast,       setToast]       = useState("");
   const [isUploading, setIsUploading] = useState(false);
 
-  // ── Derived data ──────────────────────────────────────────────────────────
-  const employeeByEmail = useMemo(() => (
+  // ── Directory ────────────────────────────────────────────────────────────────
+  const employeeByEmail = useMemo(() =>
     employees.reduce((acc, e) => {
-      const key = String(e.email || "").toLowerCase();
-      if (key) acc[key] = e;
+      const k = String(e.email || "").toLowerCase();
+      if (k) acc[k] = e;
       return acc;
-    }, {})
-  ), [employees]);
+    }, {}),
+  [employees]);
 
-  const directory = useMemo(() => (
+  const directory = useMemo(() =>
     users
-      .filter((u) => u.id !== currentUser.id)
-      .map((u) => {
+      .filter(u => u.id !== currentUser.id)
+      .map(u => {
         const emp = employeeByEmail[String(u.email || "").toLowerCase()];
         return {
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          dept: emp?.department || u.dept || "",
-          position: emp?.position || u.jobTitle || "",
+          id:         u.id,
+          name:       u.name,
+          email:      u.email,
+          dept:       emp?.department || u.dept || "",
+          position:   emp?.position   || u.jobTitle || "",
           supervisorId: u.supervisorId || emp?.supervisorId || "",
         };
       })
-      .filter((p) => allowedRecipientIds.includes(p.id))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  ), [allowedRecipientIds, currentUser.id, employeeByEmail, users]);
+      .filter(p => allowedRecipientIds.includes(p.id))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  [allowedRecipientIds, currentUser.id, employeeByEmail, users]);
 
   const personMap = useMemo(() => makePersonMap(directory), [directory]);
 
-  const relevantAnnouncements = useMemo(() => (
-    announcements
-      .filter((item) => item.visibleToCurrentUser)
-      .map((item) => ({
-        ...item,
-        senderName: item.senderName || users.find((u) => u.id === item.senderId)?.name || "HR",
-      }))
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-  ), [announcements, users]);
-
-  const announcementUnreadCount = useMemo(() => (
-    relevantAnnouncements.filter((item) => !item.readBy?.includes(currentUser.id)).length
-  ), [currentUser.id, relevantAnnouncements]);
-
-  const conversations = useMemo(() => {
+  // ── Build unified thread list ─────────────────────────────────────────────
+  const dmThreads = useMemo(() => {
     const grouped = new Map();
-    messages.forEach((msg) => {
+    messages.forEach(msg => {
       if (msg.senderId !== currentUser.id && msg.receiverId !== currentUser.id) return;
       const partnerId = msg.senderId === currentUser.id ? msg.receiverId : msg.senderId;
       if (!allowedRecipientIds.includes(partnerId)) return;
-      const existing = grouped.get(partnerId) || {
-        partner: personMap[partnerId] || directory.find((p) => p.id === partnerId) || { id: partnerId, name: "Unknown staff", dept: "", position: "" },
-        unreadCount: 0,
-        lastMessage: null,
-      };
-      if (!existing.lastMessage || new Date(msg.timestamp) > new Date(existing.lastMessage.timestamp)) {
-        existing.lastMessage = msg;
-      }
-      if (msg.receiverId === currentUser.id && msg.senderId === partnerId && msg.status !== "read") {
-        existing.unreadCount += 1;
-      }
+      const partner = personMap[partnerId] || directory.find(p => p.id === partnerId)
+        || { id: partnerId, name: "Unknown", dept: "", position: "" };
+      const existing = grouped.get(partnerId) || { partner, unreadCount: 0, lastMsg: null };
+      if (!existing.lastMsg || new Date(msg.timestamp) > new Date(existing.lastMsg.timestamp))
+        existing.lastMsg = msg;
+      if (msg.receiverId === currentUser.id && msg.senderId === partnerId && msg.status !== "read")
+        existing.unreadCount++;
       grouped.set(partnerId, existing);
     });
-    return Array.from(grouped.values()).sort(
-      (a, b) => new Date(b.lastMessage?.timestamp || 0) - new Date(a.lastMessage?.timestamp || 0)
-    );
+    return Array.from(grouped.values()).map(({ partner, unreadCount: uc, lastMsg }) => ({
+      id:              partner.id,
+      type:            "dm",
+      name:            partner.name,
+      subtitle:        [partner.position, partner.dept].filter(Boolean).join(" · ") || "Staff",
+      lastMessage:     lastMsg,
+      lastMessageText: lastMsg
+        ? (lastMsg.senderId === currentUser.id ? `You: ${lastMsg.message}` : lastMsg.message)
+        : "",
+      lastMessageTs:   lastMsg?.timestamp || "",
+      unreadCount:     uc,
+      partner,
+    }));
   }, [allowedRecipientIds, currentUser.id, directory, messages, personMap]);
 
-  const groupsWithMeta = useMemo(() => (
-    groups.map((g) => {
-      const msgs = groupMessages[g.id] || [];
+  const groupThreads = useMemo(() =>
+    groups.map(g => {
+      const msgs    = groupMessages[g.id] || [];
       const lastMsg = msgs[msgs.length - 1] || null;
-      const readTs = getGroupReadTs(currentUser.id, g.id);
-      const unread = readTs
-        ? msgs.filter((m) => m.senderId !== currentUser.id && new Date(m.timestamp) > new Date(readTs)).length
-        : msgs.filter((m) => m.senderId !== currentUser.id).length;
-      return { ...g, lastMessage: lastMsg, unreadCount: unread };
-    })
-  ), [currentUser.id, groupMessages, groups]);
+      const readTs  = getGroupReadTs(currentUser.id, g.id);
+      const uc = readTs
+        ? msgs.filter(m => m.senderId !== currentUser.id && new Date(m.timestamp) > new Date(readTs)).length
+        : msgs.filter(m => m.senderId !== currentUser.id).length;
+      const members = directory.filter(p => g.members.includes(p.id));
+      return {
+        id:              g.id,
+        type:            "group",
+        name:            g.name,
+        subtitle:        `${g.members.length} member${g.members.length !== 1 ? "s" : ""}`,
+        lastMessage:     lastMsg,
+        lastMessageText: lastMsg
+          ? (lastMsg.senderId === currentUser.id
+              ? `You: ${lastMsg.message}`
+              : `${lastMsg.senderName?.split(" ")[0] || "Someone"}: ${lastMsg.message}`)
+          : "No messages yet",
+        lastMessageTs: lastMsg?.timestamp || g.createdAt || "",
+        unreadCount:   uc,
+        group:         g,
+        members,
+      };
+    }),
+  [currentUser.id, directory, groupMessages, groups]);
 
-  const hasSelectedConversation = !!(
-    selectedRecipientId &&
-    (personMap[selectedRecipientId] || conversations.some((c) => c.partner.id === selectedRecipientId))
+  const announcementThread = useMemo(() => {
+    const sorted  = [...announcements].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const latest  = sorted[0] || null;
+    const uc      = sorted.filter(a => !a.readBy?.includes(currentUser.id)).length;
+    return {
+      id:              "announcements",
+      type:            "channel",
+      name:            "HR Announcements",
+      subtitle:        "Broadcast channel",
+      lastMessage:     latest,
+      lastMessageText: latest ? latest.message : "",
+      lastMessageTs:   latest?.timestamp || "",
+      unreadCount:     uc,
+    };
+  }, [announcements, currentUser.id]);
+
+  const allThreads = useMemo(() => {
+    const list = [announcementThread, ...dmThreads, ...groupThreads];
+    return list.sort((a, b) => {
+      if (!a.lastMessageTs && !b.lastMessageTs) return 0;
+      if (!a.lastMessageTs) return 1;
+      if (!b.lastMessageTs) return -1;
+      return new Date(b.lastMessageTs) - new Date(a.lastMessageTs);
+    });
+  }, [announcementThread, dmThreads, groupThreads]);
+
+  const selectedThread = useMemo(
+    () => allThreads.find(t => t.id === selectedThreadId) || null,
+    [allThreads, selectedThreadId]
   );
-  const resolvedSelectedRecipientId = hasSelectedConversation
-    ? selectedRecipientId
-    : (conversations[0]?.partner?.id || directory[0]?.id || "");
 
-  const resolvedComposeRecipientId = composeRecipientId && allowedRecipientIds.includes(composeRecipientId)
-    ? composeRecipientId
-    : resolvedSelectedRecipientId;
+  // ── Active messages for selected thread ──────────────────────────────────
+  const activeMessages = useMemo(() => {
+    if (!selectedThread) return [];
 
-  const directMessages = useMemo(() => (
-    messages
-      .filter((msg) => (
-        (msg.senderId === currentUser.id && msg.receiverId === resolvedSelectedRecipientId) ||
-        (msg.receiverId === currentUser.id && msg.senderId === resolvedSelectedRecipientId)
-      ))
-      .map((msg) => ({
-        ...msg,
-        senderName: msg.senderId === currentUser.id ? currentUser.name : (personMap[msg.senderId]?.name || "Staff"),
-      }))
-      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-  ), [currentUser.id, currentUser.name, messages, personMap, resolvedSelectedRecipientId]);
+    if (selectedThread.type === "dm") {
+      return messages
+        .filter(msg =>
+          (msg.senderId === currentUser.id && msg.receiverId === selectedThread.id) ||
+          (msg.receiverId === currentUser.id && msg.senderId === selectedThread.id)
+        )
+        .map(msg => ({
+          ...msg,
+          senderName: msg.senderId === currentUser.id
+            ? currentUser.name
+            : (personMap[msg.senderId]?.name || "Staff"),
+        }))
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    }
 
-  const activeConversation = resolvedSelectedRecipientId
-    ? (personMap[resolvedSelectedRecipientId] || directory.find((p) => p.id === resolvedSelectedRecipientId) || null)
-    : null;
+    if (selectedThread.type === "group") {
+      return [...(groupMessages[selectedThread.id] || [])]
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    }
 
-  const activeGroup = selectedGroupId ? groups.find((g) => g.id === selectedGroupId) || null : null;
+    if (selectedThread.type === "channel") {
+      return [...announcements]
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+        .map(a => ({
+          id:          a.id,
+          senderId:    a.senderId,
+          senderName:  users.find(u => u.id === a.senderId)?.name || "HR",
+          message:     a.message,
+          timestamp:   a.timestamp,
+          audienceType: a.audienceType,
+          department:  a.department,
+          readBy:      a.readBy || [],
+          type:        "announcement",
+        }));
+    }
+    return [];
+  }, [selectedThread, messages, currentUser.id, currentUser.name, personMap, groupMessages, announcements, users]);
 
-  const activeGroupMessages = useMemo(() => (
-    selectedGroupId
-      ? [...(groupMessages[selectedGroupId] || [])].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-      : []
-  ), [groupMessages, selectedGroupId]);
-
-  // ── Effects ───────────────────────────────────────────────────────────────
+  // ── Side effects ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined" || !resolvedSelectedRecipientId) return;
-    localStorage.setItem(threadStorageKey, resolvedSelectedRecipientId);
-  }, [resolvedSelectedRecipientId, threadStorageKey]);
+    if (selectedThreadId) lsStrSet(lastThreadKey(currentUser.id), selectedThreadId);
+  }, [selectedThreadId, currentUser.id]);
 
   useEffect(() => {
-    if (resolvedSelectedRecipientId && viewMode === "dm") onMarkConversationRead(resolvedSelectedRecipientId);
-  }, [onMarkConversationRead, resolvedSelectedRecipientId, viewMode]);
+    if (selectedThread?.type === "dm") onMarkConversationRead(selectedThread.id);
+  }, [selectedThread?.id, selectedThread?.type, onMarkConversationRead]);
 
   useEffect(() => {
-    if (relevantAnnouncements.length) onMarkAnnouncementsRead();
-  }, [onMarkAnnouncementsRead, relevantAnnouncements.length]);
+    if (selectedThread?.type === "group" && selectedThread.id) {
+      setGroupReadTs(currentUser.id, selectedThread.id);
+      setGroups(prev => [...prev]);
+    }
+  }, [currentUser.id, selectedThread?.id, selectedThread?.type]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => { onRefresh(); }, 5000);
-    return () => window.clearInterval(timer);
+    const t = window.setInterval(() => onRefresh(), 5000);
+    return () => window.clearInterval(t);
   }, [onRefresh]);
 
   useEffect(() => {
-    if (!toast) return undefined;
-    const timer = window.setTimeout(() => setToast(""), 2600);
-    return () => window.clearTimeout(timer);
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(""), 2600);
+    return () => window.clearTimeout(t);
   }, [toast]);
 
-  useEffect(() => {
-    if (viewMode === "group" && selectedGroupId) {
-      setGroupReadTs(currentUser.id, selectedGroupId);
-      setGroups((prev) => [...prev]);
-    }
-  }, [currentUser.id, selectedGroupId, viewMode]);
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
+  // ── Attachment upload ─────────────────────────────────────────────────────
   const uploadAttachment = async (file) => {
     setIsUploading(true);
     try {
-      const ext = file.name.split(".").pop();
+      const ext  = file.name.split(".").pop();
       const path = `${currentUser.id}/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage
-        .from("chat-attachments")
-        .upload(path, file, { upsert: true });
+      const { error } = await supabase.storage.from("chat-attachments").upload(path, file, { upsert: true });
       if (error) throw error;
       const { data } = supabase.storage.from("chat-attachments").getPublicUrl(path);
       return data.publicUrl;
@@ -254,181 +277,172 @@ export default function MessagesModule({
     }
   };
 
-  const sendDM = (receiverId, text) => {
-    const result = onSendMessage(receiverId, text);
-    if (result?.ok) {
-      setToast("Message sent.");
-      setSelectedRecipientId(receiverId);
-      setComposeRecipientId(receiverId);
-    } else if (result?.message) {
-      setToast(result.message);
-    }
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  const handleSelectThread = useCallback((threadId) => {
+    setSelectedThreadId(threadId);
+    setReplyTo(null);
+  }, []);
+
+  const handlePinThread = useCallback((threadId) => {
+    setPinnedIds(prev => {
+      const next = prev.includes(threadId)
+        ? prev.filter(id => id !== threadId)
+        : [...prev, threadId];
+      savePinned(currentUser.id, next);
+      return next;
+    });
+  }, [currentUser.id]);
+
+  const getDraft    = () => {
+    if (!selectedThread) return "";
+    if (selectedThread.type === "dm")      return dmDraft;
+    if (selectedThread.type === "group")   return groupDraft;
+    if (selectedThread.type === "channel") return annDraft;
+    return "";
+  };
+  const setDraft = (text) => {
+    if (!selectedThread) return;
+    if (selectedThread.type === "dm")      setDmDraft(text);
+    else if (selectedThread.type === "group")   setGroupDraft(text);
+    else if (selectedThread.type === "channel") setAnnDraft(text);
   };
 
-  const handleSendFromComposer = () => {
-    if (!resolvedComposeRecipientId || !composeDraft.trim()) return;
-    sendDM(resolvedComposeRecipientId, composeDraft);
-    setComposeDraft("");
-  };
-
-  const handleSendReply = async (text, file) => {
-    if (!resolvedSelectedRecipientId) return;
-    let msgText = text !== undefined ? text : replyDraft;
+  const handleSend = async (text, file) => {
+    if (!selectedThread) return;
+    let msgText = (text !== undefined ? text : getDraft());
     if (!msgText.trim() && !file) return;
+
     if (file) {
       const url = await uploadAttachment(file);
       if (!url) return;
-      const attach = `[📎 ${file.name}](${url})`;
-      msgText = msgText.trim() ? `${msgText.trim()}\n${attach}` : attach;
+      const attachment = `[📎 ${file.name}](${url})`;
+      msgText = msgText.trim() ? `${msgText.trim()}\n${attachment}` : attachment;
     }
-    sendDM(resolvedSelectedRecipientId, msgText);
-    setReplyDraft("");
-  };
 
-  const handleSendGroupMessage = async (text, file) => {
-    if (!selectedGroupId) return;
-    let msgText = text !== undefined ? text : groupReplyDraft;
-    if (!msgText.trim() && !file) return;
-    if (file) {
-      const url = await uploadAttachment(file);
-      if (!url) return;
-      const attach = `[📎 ${file.name}](${url})`;
-      msgText = msgText.trim() ? `${msgText.trim()}\n${attach}` : attach;
+    // Prepend reply-to quote
+    if (replyTo) {
+      const preview = (replyTo.message || "").slice(0, 100);
+      msgText = `[↩ ${replyTo.senderName || "Unknown"}: "${preview}"]\n${msgText.trim()}`;
     }
-    const newMsg = {
-      id: `gm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      groupId: selectedGroupId,
-      senderId: currentUser.id,
-      senderName: currentUser.name,
-      message: msgText.trim(),
-      timestamp: new Date().toISOString(),
-    };
-    const updated = [...loadGroupMessages(selectedGroupId), newMsg];
-    saveGroupMessages(selectedGroupId, updated);
-    setGroupMessages((prev) => ({ ...prev, [selectedGroupId]: updated }));
-    setGroupReplyDraft("");
-    setGroupReadTs(currentUser.id, selectedGroupId);
+
+    const finalText = msgText.trim();
+    setReplyTo(null);
+
+    if (selectedThread.type === "dm") {
+      const result = onSendMessage(selectedThread.id, finalText);
+      if (result?.ok)      setToast("Message sent.");
+      else if (result?.message) setToast(result.message);
+      setDmDraft("");
+    } else if (selectedThread.type === "group") {
+      const newMsg = {
+        id:        `gm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        groupId:   selectedThread.id,
+        senderId:  currentUser.id,
+        senderName: currentUser.name,
+        message:   finalText,
+        timestamp: new Date().toISOString(),
+      };
+      const updated = [...loadGroupMessages(selectedThread.id), newMsg];
+      saveGroupMessages(selectedThread.id, updated);
+      setGroupMessages(prev => ({ ...prev, [selectedThread.id]: updated }));
+      setGroupReadTs(currentUser.id, selectedThread.id);
+      setGroups(prev => [...prev]);
+      setGroupDraft("");
+    } else if (selectedThread.type === "channel") {
+      const result = onSendAnnouncement(annScope, annDept, finalText);
+      if (result?.ok) {
+        setAnnDraft(""); setAnnScope("all"); setAnnDept("");
+        setToast("Announcement published.");
+      } else if (result?.message) setToast(result.message);
+    }
   };
 
   const handleCreateGroup = (name, memberIds) => {
     const newGroup = {
-      id: `grp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name: name.trim(),
-      members: [currentUser.id, ...memberIds.filter((id) => id !== currentUser.id)],
+      id:        `grp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name:      name.trim(),
+      members:   [currentUser.id, ...memberIds.filter(id => id !== currentUser.id)],
       createdBy: currentUser.id,
       createdAt: new Date().toISOString(),
     };
     const all = loadGroups();
     all.push(newGroup);
     saveGroups(all);
-    setGroups((prev) => [...prev, newGroup]);
-    setGroupMessages((prev) => ({ ...prev, [newGroup.id]: [] }));
-    setSelectedGroupId(newGroup.id);
-    setViewMode("group");
+    setGroups(prev => [...prev, newGroup]);
+    setGroupMessages(prev => ({ ...prev, [newGroup.id]: [] }));
+    setSelectedThreadId(newGroup.id);
     setToast(`Group "${name}" created.`);
   };
 
-  const handleSendAnnouncement = () => {
-    const result = onSendAnnouncement(announcementScope, announcementDepartment, announcementDraft);
-    if (result?.ok) {
-      setAnnouncementDraft("");
-      setAnnouncementDepartment("");
-      setAnnouncementScope("all");
-      setToast("Announcement published.");
-    } else if (result?.message) {
-      setToast(result.message);
-    }
-  };
+  const handleAcknowledge = useCallback((announcementId) => {
+    if (onAcknowledgeAnnouncement) onAcknowledgeAnnouncement(announcementId);
+    else onMarkAnnouncementsRead();
+    setToast("Acknowledged.");
+  }, [onAcknowledgeAnnouncement, onMarkAnnouncementsRead]);
 
-  const totalGroupUnread = groupsWithMeta.reduce((sum, g) => sum + (g.unreadCount || 0), 0);
-  const totalUnread = unreadCount + totalGroupUnread;
+  const totalUnread =
+    (unreadCount || 0) +
+    groupThreads.reduce((s, g) => s + (g.unreadCount || 0), 0) +
+    announcementThread.unreadCount;
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="page" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {/* ── Page header ── */}
+      {/* Page header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
         <div>
-          <div className="page-title">Messages Center</div>
-          <div className="page-sub">Internal staff conversations, group chats, and HR announcements.</div>
+          <div className="page-title">Messages</div>
+          <div className="page-sub">Internal conversations, groups, and HR broadcasts.</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 0, background: "#fff", border: "1px solid var(--g200)", borderRadius: 14, boxShadow: "var(--sh-sm)", flexShrink: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", background: "#fff", border: "1px solid var(--g200)", borderRadius: 14, boxShadow: "var(--sh-sm)", flexShrink: 0, overflow: "hidden" }}>
           {[
-            { label: "Unread", value: totalUnread, color: totalUnread > 0 ? "var(--navy)" : "var(--g400)" },
+            { label: "Unread",     value: totalUnread,     color: totalUnread > 0 ? "var(--navy)" : "var(--g400)" },
             { label: "Colleagues", value: directory.length, color: "var(--navy)" },
-            { label: "Groups", value: groups.length, color: "var(--navy)" },
-            { label: "Announcements", value: relevantAnnouncements.length, color: announcementUnreadCount > 0 ? "#b45309" : "var(--navy)" },
-          ].map((stat, i) => (
-            <div key={stat.label} style={{ display: "flex", alignItems: "center" }}>
+            { label: "Groups",     value: groups.length,   color: "var(--navy)" },
+          ].map((s, i) => (
+            <div key={s.label} style={{ display: "flex", alignItems: "center" }}>
               {i > 0 && <div style={{ width: 1, height: 36, background: "var(--g100)" }} />}
               <div style={{ padding: "10px 18px", textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: stat.color, fontFamily: "var(--serif)", lineHeight: 1 }}>{stat.value}</div>
-                <div style={{ fontSize: 10, color: "var(--g500)", fontWeight: 600, marginTop: 2, textTransform: "uppercase", letterSpacing: ".07em" }}>{stat.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: s.color, fontFamily: "var(--serif)", lineHeight: 1 }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: "var(--g500)", fontWeight: 600, marginTop: 2, textTransform: "uppercase", letterSpacing: ".07em" }}>{s.label}</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Toast ── */}
       {toast && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 12, background: "#f0fdf9", border: "1px solid rgba(16,185,129,.2)", color: "#065f46", fontSize: 13, fontWeight: 600, marginBottom: 14, boxShadow: "0 2px 8px rgba(16,185,129,.1)" }}>
-          <IconBadge name="notification" tone="teal" size={13} /> {toast}
+          ✓ {toast}
         </div>
       )}
 
-      {/* ── Main layout ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0,1fr)", gap: 16, flex: 1, height: "calc(100vh - 240px)", minHeight: 520 }}>
-        <ConversationList
-          conversations={conversations}
-          groups={groupsWithMeta}
-          viewMode={viewMode}
-          selectedRecipientId={viewMode === "dm" ? resolvedSelectedRecipientId : null}
-          selectedGroupId={viewMode === "group" ? selectedGroupId : null}
-          onSelectConversation={(recipientId) => {
-            setSelectedRecipientId(recipientId);
-            setComposeRecipientId(recipientId);
-            setViewMode("dm");
-          }}
-          onSelectGroup={(groupId) => {
-            setSelectedGroupId(groupId);
-            setViewMode("group");
-          }}
-          onCreateGroup={handleCreateGroup}
-          allowedRecipients={directory}
-          composeRecipientId={resolvedComposeRecipientId}
-          onChangeComposeRecipient={setComposeRecipientId}
-          draft={composeDraft}
-          onChangeDraft={setComposeDraft}
-          onSend={handleSendFromComposer}
-          currentUserId={currentUser.id}
-        />
-
+      <div style={{ flex: 1, height: "calc(100vh - 240px)", minHeight: 520 }}>
         <ChatWindow
           currentUser={currentUser}
-          viewMode={viewMode}
-          activeConversation={activeConversation}
-          directMessages={directMessages}
-          activeGroup={activeGroup}
-          activeGroupMessages={activeGroupMessages}
-          groupDirectory={directory}
-          activeAnnouncements={relevantAnnouncements}
-          announcementUnreadCount={announcementUnreadCount}
-          onSendReply={handleSendReply}
-          onSendGroupMessage={handleSendGroupMessage}
-          replyDraft={replyDraft}
-          onChangeReplyDraft={setReplyDraft}
-          groupReplyDraft={groupReplyDraft}
-          onChangeGroupReplyDraft={setGroupReplyDraft}
+          allThreads={allThreads}
+          pinnedIds={pinnedIds}
+          selectedThreadId={selectedThreadId}
+          selectedThread={selectedThread}
+          activeMessages={activeMessages}
+          onSelectThread={handleSelectThread}
+          onPinThread={handlePinThread}
+          onCreateGroup={handleCreateGroup}
+          allowedRecipients={directory}
+          draft={getDraft()}
+          onChangeDraft={setDraft}
+          onSend={handleSend}
           isUploading={isUploading}
-          showAnnouncementComposer={canPublishAnnouncements}
-          announcementScope={announcementScope}
-          onChangeAnnouncementScope={setAnnouncementScope}
-          announcementDepartment={announcementDepartment}
-          onChangeAnnouncementDepartment={setAnnouncementDepartment}
+          replyTo={replyTo}
+          onSetReplyTo={setReplyTo}
+          onClearReplyTo={() => setReplyTo(null)}
+          canPublishAnnouncements={canPublishAnnouncements}
+          annScope={annScope}
+          onChangeAnnScope={setAnnScope}
+          annDept={annDept}
+          onChangeAnnDept={setAnnDept}
           departments={departments}
-          announcementDraft={announcementDraft}
-          onChangeAnnouncementDraft={setAnnouncementDraft}
-          onSendAnnouncement={handleSendAnnouncement}
+          onAcknowledge={handleAcknowledge}
         />
       </div>
     </div>

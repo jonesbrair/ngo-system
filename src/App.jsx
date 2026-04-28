@@ -2834,6 +2834,21 @@ textarea{resize:vertical;min-height:88px}
 .modal-close:hover{background:var(--g100);color:var(--g700)}
 .modal-body{padding:22px}
 .modal-footer{padding:15px 22px;border-top:1px solid var(--g100);display:flex;justify-content:flex-end;gap:10px}
+/* ── Print / PDF – multi-page fix ── */
+@media print{
+  @page{size:A4 portrait;margin:15mm}
+  body *{visibility:hidden}
+  .overlay,.modal,.modal-body,.pdf-doc,.pdf-doc *{visibility:visible}
+  .overlay{position:static!important;background:none!important;padding:0!important;display:block!important;animation:none!important;height:auto!important;min-height:0!important}
+  .modal{position:static!important;max-width:100%!important;max-height:none!important;height:auto!important;overflow:visible!important;box-shadow:none!important;border-radius:0!important;animation:none!important;width:100%!important}
+  .modal-header,.modal-footer,.modal-close,.btn,.print-hide{display:none!important}
+  .modal-body{padding:0!important;overflow:visible!important;max-height:none!important;height:auto!important}
+  .pdf-doc{max-width:100%!important;padding:0!important;box-shadow:none!important;border-radius:0!important;margin:0!important;overflow:visible!important;height:auto!important}
+  /* Nothing breaks mid-element — content stays intact, pages add as needed */
+  .pdf-sec,.pdf-sig-box,.pdf-row,.pdf-field,.pending-card,.pending-card-body,table,tr,td,th{page-break-inside:avoid!important;break-inside:avoid!important}
+  .pdf-sec-title{page-break-after:avoid;break-after:avoid}
+  .paid-stamp{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 @keyframes slideup{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
 
@@ -6528,7 +6543,7 @@ function MyESignaturePage({ user, onSaveSignature }) {
   );
 }
 
-function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, draftCount, onLogout, isOpen, onClose, collapsed, onToggleCollapse }) {
+function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCount, pendingAccountabilityCount, draftCount, onLogout, isOpen, onClose, collapsed, onToggleCollapse }) {
   const isApprover = ["supervisor","accountant","finance_manager","executive_director","payment_accountant"].includes(user.role);
   const isAdmin = user.role === "admin";
   const mr = getModuleRole(user);
@@ -6537,7 +6552,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
   const canAccessPaymentQueue = hasDashboardAccess(user, "payment_queue");
   const financePages = new Set([
     "dashboard","new_request","my_requests","my_drafts","pending_approvals","approval_history",
-    "payment_queue","notifications","financial_reports","my_leave","leave_apply","my_signature",
+    "payment_queue","pending_accountability","paid_vouchers","notifications","financial_reports","my_leave","leave_apply","my_signature",
   ]);
   const adminPages = new Set(["admin_center","admin_users","admin_budgets","admin_all_requests","admin_logs","my_signature"]);
   const hrPages = HR_WORKSPACE_PAGES;
@@ -6559,10 +6574,11 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
     </div>
   );
 
-  const QA = (icon, label, id) => (
+  const QA = (icon, label, id, badge) => (
     <div key={`qa-${id}`} className={`quick-action-item ${page===id?"active":""}`} title={label} onClick={() => { setPage(id); onClose(); }}>
-      <span className="nav-icon" style={{ width:28, height:28 }}>
+      <span className="nav-icon" style={{ width:28, height:28, position:"relative" }}>
         <IconBadge name={icon} tone="blue" size={13} />
+        {!!badge && <span style={{ position:"absolute", top:-4, right:-4, background:"#ef4444", color:"#fff", borderRadius:"50%", fontSize:9, fontWeight:700, minWidth:14, height:14, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 2px", lineHeight:1 }}>{badge > 99 ? "99+" : badge}</span>}
       </span>
       <span className="quick-action-label">{label}</span>
     </div>
@@ -6630,114 +6646,9 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           {QA("requests","My Requests","my_requests")}
           {(isApprover||isAdmin) && QA("pending_approvals","Pending Approvals","pending_approvals")}
           {QA("com","Messages","messages_center")}
+          {QA("workflow","Pending Accountability","pending_accountability", pendingAccountabilityCount || null)}
+          {QA("edit","My E-Signature","my_signature")}
         </div>
-      </div>
-      <div className="sidebar-divider" />
-
-      <div style={{ flex:1, overflowY:"auto", padding:"8px 0" }}>
-        {isHome && <>
-          <div className="nav-sec">Systems</div>
-          {N("finance","Finance","finance",null,false,"dashboard")}
-          {isAdmin && N("admin","Admin Center","admin_center")}
-          {N("prc","Procurement","procurement")}
-          {N("hr","Human Resources","human_resource")}
-          {N("com","Messages","messages_center", messageUnreadCount)}
-          {N("pm","Project Management","project_management")}
-          {N("ast","Asset Management","asset_management")}
-          {N("doc","Document Management","document_management")}
-          {N("com","Communication","communication")}
-          <div className="nav-sec">My Workspace</div>
-          {N("edit","My E-Signature","my_signature")}
-        </>}
-
-        {inFinance && <>
-          <div className="nav-sec">Navigation</div>
-          {N("home","Home","home")}
-          <div className="nav-sec">Finance</div>
-
-          <div className="nav-sec">Main</div>
-          {N("dashboard","Dashboard","dashboard")}
-          {N("notifications","Notifications","notifications", notifCount)}
-
-          <div className="nav-sec">Requests</div>
-          {N("new_request","New Request","new_request")}
-          {N("requests","My Requests","my_requests")}
-
-          {(isApprover || isAdmin) && <>
-            <div className="nav-sec">Approvals</div>
-            {N("pending_approvals","Pending Approvals","pending_approvals",pendingCount)}
-            {N("approvals","Approval History","approval_history")}
-          </>}
-
-          {canAccessPaymentQueue && N("payments","Payment Queue","payment_queue", paymentQueueCount || null)}
-
-          {canAccessFinancialReports && <>
-            <div className="nav-sec">Reports</div>
-            {N("reports", user.role==="finance_manager" ? "Generate Financial Report" : "Financial Reports", "financial_reports")}
-          </>}
-
-          <div className="nav-sec">Leave</div>
-          {N("calendar","My Leave","my_leave")}
-          {N("new_request","Apply for Leave","leave_apply")}
-          <div className="nav-sec">My Workspace</div>
-          {N("edit","My E-Signature","my_signature")}
-        </>}
-
-        {inAdmin && isAdmin && <>
-          <div className="nav-sec">Navigation</div>
-          {N("home","Home","home")}
-          <div className="nav-sec">Admin Center</div>
-          {N("admin","Overview","admin_center")}
-          {N("users","User Management","admin_users")}
-          {N("reports","Project Budgets","admin_budgets")}
-          {N("requests","All Requests","admin_all_requests")}
-          {N("logs","Activity Logs","admin_logs")}
-          <div className="nav-sec">My Workspace</div>
-          {N("edit","My E-Signature","my_signature")}
-        </>}
-
-        {inHR && <>
-          <div className="nav-sec">Navigation</div>
-          {N("home","Home","home")}
-          <div className="nav-sec">Human Resources</div>
-          {N("hr","Overview","human_resource")}
-          {(mr === "hr" || isAdmin) && <>
-            {N("doc","Staff Files","hr_staff_files")}
-            {N("users","Employee Registry","hr_employees")}
-            {N("reports","Org Structure","hr_org_structure")}
-            <div className="nav-sec">Setup</div>
-            {N("doc","Departments","hr_departments")}
-            {N("admin","Positions","hr_positions")}
-            <div className="nav-sec">Administration</div>
-            {N("users","User Accounts","hr_users")}
-          </>}
-          <div className="nav-sec">Leave</div>
-          {N("calendar","Leave Overview","hr_leave")}
-          {N("new_request","Apply for Leave","leave_apply")}
-          {N("requests","My Leave","my_leave")}
-          {canAccessLeaveManagement(user) && N("reports", (mr === "hr" || isAdmin) ? "All Applications" : "Leave Approval Queue", "hr_leave_manage")}
-          <div className="nav-sec">My Workspace</div>
-          {N("edit","My E-Signature","my_signature")}
-          {N("new_request","New Request","new_request")}
-          {N("requests","My Requests","my_requests")}
-        </>}
-
-        {inMessages && <>
-          <div className="nav-sec">Navigation</div>
-          {N("home","Home","home")}
-          <div className="nav-sec">Messages</div>
-          {N("com","Messages Center","messages_center", messageUnreadCount)}
-          {N("notifications","Notifications","notifications", notifCount)}
-          <div className="nav-sec">My Workspace</div>
-          {N("edit","My E-Signature","my_signature")}
-        </>}
-
-        {!isHome && !inFinance && !inAdmin && !inHR && !inMessages && <>
-          <div className="nav-sec">Navigation</div>
-          {N("home","Home","home")}
-          <div className="nav-sec">My Workspace</div>
-          {N("edit","My E-Signature","my_signature")}
-        </>}
       </div>
 
       <div className="sidebar-footer">
@@ -9273,12 +9184,14 @@ function RequestDetail({
   onOpenPaymentForm      = () => {},
   onEdit                 = () => {},
   onDownload             = () => {},
+  onDelete               = null,
   onSubmitAccountability = () => {},
   onApproveAccountability= () => {},
   onRejectAccountability = () => {},
 }) {
   const [rejectReason,    setRejectReason]    = useState("");
   const [showReject,      setShowReject]      = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showAccForm,     setShowAccForm]     = useState(false);
   const [showAccReject,   setShowAccReject]   = useState(false);
   const [accRejectReason, setAccRejectReason] = useState("");
@@ -9394,6 +9307,11 @@ function RequestDetail({
               <AppButtonIcon name="edit" tone="blue" />Edit &amp; Resubmit
             </button>
           )}
+          {isEditable && onDelete && (
+            <button className="btn btn-ghost btn-sm" style={{ color:"var(--red)" }} onClick={() => setShowDeleteConfirm(true)}>
+              <AppButtonIcon name="reject" tone="red" size={12} />Delete
+            </button>
+          )}
           {/* Stage 3: Submit Accountability button (only for requester after payment or on revision) */}
           {canSubmitAccountability && (
             <button className="btn btn-amber btn-sm" onClick={() => setShowAccForm(true)}>
@@ -9408,6 +9326,17 @@ function RequestDetail({
           )}
         </div>
       </div>
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="alert alert-red" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:0 }}>
+          <span>Are you sure you want to permanently delete <strong>"{req.title || "this request"}"</strong>? This cannot be undone.</span>
+          <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+            <button className="btn btn-sm" style={{ background:"var(--red)", color:"#fff" }} onClick={() => { onDelete(req.id); onClose(); }}>Delete</button>
+          </div>
+        </div>
+      )}
 
       {/* Pre-payment rejection reason */}
       {isRejected && req.lastRejectionReason && (
@@ -10084,6 +10013,102 @@ function PDFModal({ req, onClose }) {
           )}
         </div>
 
+        {/* ── Accountability section (only when completed) ── */}
+        {req.status === "completed" && hasAccountabilitySubmissionData(req) && (
+          <div className="pdf-sec" style={{ pageBreakBefore:"always", breakBefore:"page", paddingTop:4 }}>
+            <div className="pdf-sec-title">Accountability Record</div>
+            <div style={{ border:"1px solid var(--g200)", borderRadius:"var(--r-sm)", overflow:"hidden", marginBottom:10 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", background:"var(--g50)" }}>
+                {[
+                  ["Submitted By", req.accountabilitySubmittedByName || req.requesterName || "-"],
+                  ["Submission Date", req.accountabilitySubmittedAt ? fmt(req.accountabilitySubmittedAt) : "-"],
+                  ["Closed By", req.completedByName || "-"],
+                ].map(([l,v]) => (
+                  <div key={l} style={{ padding:"10px 14px", borderRight:"1px solid var(--g200)", borderBottom:"1px solid var(--g200)" }}>
+                    <div className="pdf-fl">{l}</div>
+                    <div className="pdf-fv">{v}</div>
+                  </div>
+                ))}
+              </div>
+              {req.accountabilityFinanceSummary?.totals && (
+                <div style={{ padding:"12px 16px" }}>
+                  <div className="pdf-fl" style={{ marginBottom:8 }}>Budget vs Actual Summary</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
+                    {[
+                      ["Total Approved", fmtAmt(req.accountabilityFinanceSummary.totals.totalApproved || req.amount)],
+                      ["Total Actual Spent", fmtAmt(req.accountabilityFinanceSummary.totals.totalActual || 0)],
+                      ["Variance", fmtAmt(Math.abs(req.accountabilityFinanceSummary.totals.totalVariance || 0))],
+                    ].map(([l,v]) => (
+                      <div key={l}>
+                        <div className="pdf-fl">{l}</div>
+                        <div className="pdf-fv" style={{ fontFamily:"var(--serif)" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {req.accountabilityFinanceSummary.totals.status && (
+                    <div style={{ marginTop:8, fontSize:12, fontWeight:700, color: req.accountabilityFinanceSummary.totals.status.includes("OVER") ? "#991b1b" : "#065f46" }}>
+                      Status: {req.accountabilityFinanceSummary.totals.status}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {req.accountabilityReportData?.financials?.budgetLines?.length > 0 && (
+              <div style={{ marginBottom:10 }}>
+                <div className="pdf-fl" style={{ marginBottom:6 }}>Budget Line Detail</div>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:"var(--g50)" }}>
+                      {["Budget Code","Item","Approved (UGX)","Actual (UGX)","Variance"].map(h => (
+                        <th key={h} style={{ padding:"7px 10px", textAlign:"left", fontWeight:700, color:"var(--g600)", fontSize:11, borderBottom:"1px solid var(--g200)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {req.accountabilityReportData.financials.budgetLines.map((line, i) => (
+                      <tr key={line.id || i} style={{ borderBottom:"1px solid var(--g100)" }}>
+                        <td style={{ padding:"6px 10px" }}>{line.budgetCode || "-"}</td>
+                        <td style={{ padding:"6px 10px" }}>{line.budgetItem || "-"}</td>
+                        <td style={{ padding:"6px 10px", fontFamily:"var(--serif)" }}>{fmtAmt(line.approvedAmount || 0)}</td>
+                        <td style={{ padding:"6px 10px", fontFamily:"var(--serif)" }}>{line.actualAmount !== "" && line.actualAmount !== undefined ? fmtAmt(Number(line.actualAmount)) : "—"}</td>
+                        <td style={{ padding:"6px 10px", fontFamily:"var(--serif)", color: Number(line.actualAmount||0) > Number(line.approvedAmount||0) ? "#991b1b" : "#065f46" }}>
+                          {line.actualAmount !== "" && line.actualAmount !== undefined ? fmtAmt(Math.abs(Number(line.approvedAmount||0) - Number(line.actualAmount||0))) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="pdf-row">
+              <div className="pdf-field">
+                <div className="pdf-fl">Receipts Submitted</div>
+                {getAccountabilityReceiptFiles(req).length > 0 ? (
+                  <ul style={{ margin:"4px 0 0", paddingLeft:16, fontSize:12 }}>
+                    {getAccountabilityReceiptFiles(req).map((f,i) => <li key={i}>{f.name || f.fileName || `Receipt ${i+1}`}</li>)}
+                  </ul>
+                ) : <div className="pdf-fv">None attached</div>}
+              </div>
+              <div className="pdf-field">
+                <div className="pdf-fl">Activity Photos</div>
+                {getAccountabilityPhotoFiles(req).length > 0 ? (
+                  <ul style={{ margin:"4px 0 0", paddingLeft:16, fontSize:12 }}>
+                    {getAccountabilityPhotoFiles(req).map((f,i) => <li key={i}>{f.name || f.fileName || `Photo ${i+1}`}</li>)}
+                  </ul>
+                ) : <div className="pdf-fv">None attached</div>}
+              </div>
+            </div>
+            {req.accountabilityReportData?.financials?.overspendingExplanation && (
+              <div style={{ marginTop:10 }}>
+                <div className="pdf-fl">Overspending Explanation</div>
+                <div className="pdf-fv" style={{ background:"#fff8f0", border:"1px solid #fed7aa", borderRadius:"var(--r-xs)", padding:"10px 12px", fontSize:12.5 }}>
+                  {req.accountabilityReportData.financials.overspendingExplanation}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ marginTop:28, paddingTop:10, borderTop:"1px solid var(--g200)", fontSize:11, color:"var(--g400)", textAlign:"center" }}>
           Generated by {APP_NAME} · {ORG_NAME} · {new Date().toLocaleDateString()}
         </div>
@@ -10093,7 +10118,7 @@ function PDFModal({ req, onClose }) {
 }
 
 // â"€â"€ Requests List â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-function RequestsList({ user, requests, title, filterFn, onApprove, onReject, onPay, onSaveEdit, onSubmitAccountability, onApproveAccountability, onRejectAccountability, onOpenSignatureSettings }) {
+function RequestsList({ user, requests, title, filterFn, onApprove, onReject, onPay, onSaveEdit, onDelete, onSubmitAccountability, onApproveAccountability, onRejectAccountability, onOpenSignatureSettings }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
@@ -10101,6 +10126,7 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
   const [paymentTarget, setPaymentTarget] = useState(null);
   const [showPDF, setShowPDF] = useState(null);
   const [editReq, setEditReq] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const filtered = requests
     .filter(filterFn || (() => true))
@@ -10134,7 +10160,7 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
           {[
             "all",
-            "draft",
+            ...( !["payment_accountant","executive_director"].includes(user.role) ? ["draft"] : [] ),
             "pending_supervisor","pending_accountant","pending_finance","pending_executive_director",
             "approved",
             "paid",
@@ -10170,7 +10196,16 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
                     <td><PriorityTag priority={r.priority} /></td>
                     <td><StatusBadge status={r.status} /></td>
                     <td className="text-sm text-gray">{fmt(r.createdAt)}</td>
-                    <td><button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setSelected(r); }}><AppButtonIcon name="view" tone="blue" />View</button></td>
+                    <td>
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setSelected(r); }}><AppButtonIcon name="view" tone="blue" />View</button>
+                        {onDelete && r.requesterId === user.id && (r.status === "draft" || r.status.startsWith("rejected")) && (
+                          <button className="btn btn-ghost btn-sm" style={{ color:"var(--red)" }} onClick={e => { e.stopPropagation(); setConfirmDelete(r); }}>
+                            <AppButtonIcon name="reject" tone="red" size={12} />Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -10186,6 +10221,7 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
           onOpenPaymentForm={r => { if (!canProcessPayment(r)) return; setSelected(null); setPaymentTarget(r); }}
           onEdit={r => { setSelected(null); setEditReq(r); }}
           onDownload={r => setShowPDF(r)}
+          onDelete={onDelete || null}
           onSubmitAccountability={(r, form) => { onSubmitAccountability(r, form); setSelected(null); }}
           onApproveAccountability={r => { onApproveAccountability(r); setSelected(null); }}
           onRejectAccountability={(r, reason) => { onRejectAccountability(r, reason); setSelected(null); }}
@@ -10201,6 +10237,20 @@ function RequestsList({ user, requests, title, filterFn, onApprove, onReject, on
             onClose={() => setEditReq(null)}
             onOpenSignatureSettings={onOpenSignatureSettings}
           />
+        </Modal>
+      )}
+      {confirmDelete && (
+        <Modal title="Delete Request" onClose={() => setConfirmDelete(null)} size="modal-sm">
+          <div style={{ padding:"8px 0 16px" }}>
+            <p>Are you sure you want to permanently delete <strong>"{confirmDelete.title || "this request"}"</strong>?</p>
+            <p style={{ color:"var(--g400)", fontSize:13, marginTop:6 }}>This cannot be undone.</p>
+          </div>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
+            <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>Cancel</button>
+            <button className="btn" style={{ background:"var(--red)", color:"#fff" }} onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }}>
+              Delete
+            </button>
+          </div>
         </Modal>
       )}
     </div>
@@ -10521,6 +10571,232 @@ function PendingApprovals({ user, requests, onApprove, onReject, onPay, onSubmit
       )}
       {paymentTarget && (
         <PaymentProcessModal req={paymentTarget} onClose={() => setPaymentTarget(null)} onSubmit={onPay} />
+      )}
+      {showPDF && <PDFModal req={showPDF} onClose={() => setShowPDF(null)} />}
+    </div>
+  );
+}
+
+// ── Pending Accountability Page ──────────────────────────────────────────────
+function PendingAccountabilityPage({ user, requests, onSubmitAccountability, onApproveAccountability, onRejectAccountability }) {
+  const isPaymentOfficer = ["payment_accountant","admin"].includes(user.role);
+
+  // Payment Officer: all unaccounted paid vouchers
+  // Everyone else: only their own
+  const queue = isPaymentOfficer
+    ? requests.filter(r => !r.isVendorPayment && ["paid","pending_accountability"].includes(r.status))
+    : requests.filter(r => !r.isVendorPayment && r.requesterId === user.id && ["paid","pending_accountability"].includes(r.status));
+
+  const [selected, setSelected] = useState(null);
+  const [showPDF, setShowPDF] = useState(null);
+  const [accountabilityTarget, setAccountabilityTarget] = useState(null);
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <div className="page-title">Pending Accountability</div>
+          <div className="page-sub">
+            {isPaymentOfficer
+              ? "All paid vouchers awaiting accountability submission from staff."
+              : "Your paid vouchers that require accountability submission."}
+          </div>
+        </div>
+        <span className="sbadge" style={{ background:"#fef3c7", color:"#92400e", fontSize:13, padding:"6px 14px" }}>
+          {queue.length} pending
+        </span>
+      </div>
+
+      {queue.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <div className="empty-icon"><IconBadge name="workflow" tone="amber" size={28} /></div>
+            <div className="empty-text">No pending accountability</div>
+            <div className="empty-sub">
+              {isPaymentOfficer
+                ? "All paid vouchers have been accounted for."
+                : "You have no paid vouchers requiring accountability submission."}
+            </div>
+          </div>
+        </div>
+      ) : (
+        queue.map(r => {
+          const isRejected = r.status === "pending_accountability" && r.accountabilityRejectionReason;
+          return (
+            <div key={r.id} className="pending-card" style={{ marginBottom:12, borderLeft:`4px solid ${isRejected ? "#ef4444" : "#f59e0b"}` }}>
+              <div className="pending-card-body">
+                <div className="flex items-center justify-between">
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div className="flex items-center gap-2 mb-1" style={{ flexWrap:"wrap" }}>
+                      <span className="ref">{r.id}</span>
+                      <StatusBadge status={r.status} />
+                      {isRejected && (
+                        <span className="sbadge" style={{ background:"#fee2e2", color:"#991b1b" }}>Revision Required</span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight:600, fontSize:15, color:"var(--navy)" }}>{r.title}</div>
+                    <div className="text-sm text-gray mt-1">{r.department} · {r.requesterName}</div>
+                    <div className="text-xs text-gray mt-1">
+                      Paid {r.paymentDate ? fmt(r.paymentDate) : "-"}
+                      {getPaymentNumber(r) ? ` · Txn: ${getPaymentNumber(r)}` : ""}
+                      {r.paidByName ? ` · by ${r.paidByName}` : ""}
+                    </div>
+                    {isRejected && (
+                      <div className="text-xs mt-1" style={{ color:"#991b1b", fontWeight:600 }}>
+                        Returned by {r.accountabilityRejectedBy}: {r.accountabilityRejectionReason}
+                      </div>
+                    )}
+                  </div>
+                  <div className="amount" style={{ fontSize:18 }}>{fmtAmt(r.amount)}</div>
+                </div>
+                <div className="flex gap-2 mt-3" style={{ flexWrap:"wrap" }}>
+                  {!isPaymentOfficer && r.requesterId === user.id && (
+                    <button className="btn btn-amber btn-sm" onClick={() => setAccountabilityTarget(r)}>
+                      <AppButtonIcon name="edit" tone="amber" />
+                      {isRejected ? "Revise Accountability" : "Submit Accountability"}
+                    </button>
+                  )}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSelected(r)}>
+                    <AppButtonIcon name="view" tone="blue" />View Details
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowPDF(r)}>
+                    <AppButtonIcon name="download" tone="navy" />Preview
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      {selected && (
+        <RequestDetail req={selected} user={user} onClose={() => setSelected(null)}
+          onApprove={() => {}} onReject={() => {}} onEdit={() => {}}
+          onOpenPaymentForm={() => {}}
+          onDownload={r => setShowPDF(r)}
+          onApproveAccountability={r => { onApproveAccountability(r); setSelected(null); }}
+          onRejectAccountability={(r, rsn) => { onRejectAccountability(r, rsn); setSelected(null); }}
+        />
+      )}
+      {showPDF && <PDFModal req={showPDF} onClose={() => setShowPDF(null)} />}
+      {accountabilityTarget && (
+        <Modal title={`Submit Accountability – ${accountabilityTarget.id}`} onClose={() => setAccountabilityTarget(null)} size="modal-lg" preventOverlayClose>
+          <AccountabilityForm
+            req={accountabilityTarget}
+            onClose={() => setAccountabilityTarget(null)}
+            onSave={(form) => {
+              onSubmitAccountability(accountabilityTarget, form);
+              setAccountabilityTarget(null);
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Paid Vouchers Page (final state – completed requests) ─────────────────────
+function PaidVouchersPage({ user, requests }) {
+  const isPaymentOfficer = ["payment_accountant","admin"].includes(user.role);
+
+  const completed = isPaymentOfficer
+    ? requests.filter(r => r.status === "completed" && !r.isVendorPayment)
+    : requests.filter(r => r.status === "completed" && !r.isVendorPayment && r.requesterId === user.id);
+
+  const [showPDF, setShowPDF] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const filtered = search.trim()
+    ? completed.filter(r =>
+        r.title.toLowerCase().includes(search.toLowerCase()) ||
+        r.id.toLowerCase().includes(search.toLowerCase()) ||
+        (r.requesterName || "").toLowerCase().includes(search.toLowerCase())
+      )
+    : completed;
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <div className="page-title">Paid Vouchers</div>
+          <div className="page-sub">Fully accounted and closed payment vouchers.</div>
+        </div>
+        <span className="sbadge" style={{ background:"#d1fae5", color:"#065f46", fontSize:13, padding:"6px 14px" }}>
+          {completed.length} completed
+        </span>
+      </div>
+
+      {/* Search */}
+      <div style={{ marginBottom:16 }}>
+        <input
+          type="text"
+          placeholder="Search by title, ID or staff…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="input"
+          style={{ maxWidth:340 }}
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <div className="empty-icon"><IconBadge name="doc" tone="green" size={28} /></div>
+            <div className="empty-text">No paid vouchers yet</div>
+            <div className="empty-sub">Vouchers that have been fully accounted for will appear here.</div>
+          </div>
+        </div>
+      ) : (
+        filtered.map(r => {
+          const receipts = getAccountabilityReceiptFiles(r);
+          const photos = getAccountabilityPhotoFiles(r);
+          return (
+            <div key={r.id} className="pending-card" style={{ marginBottom:12, borderLeft:"4px solid #10b981" }}>
+              <div className="pending-card-body">
+                <div className="flex items-center justify-between">
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div className="flex items-center gap-2 mb-1" style={{ flexWrap:"wrap" }}>
+                      <span className="ref">{r.id}</span>
+                      <span className="sbadge" style={{ background:"#d1fae5", color:"#065f46", fontWeight:800 }}>✓ COMPLETED</span>
+                      <span className="paid-stamp" style={{ fontSize:11, padding:"2px 8px" }}>PAID</span>
+                    </div>
+                    <div style={{ fontWeight:600, fontSize:15, color:"var(--navy)" }}>{r.title}</div>
+                    <div className="text-sm text-gray mt-1">{r.department} · {r.requesterName}</div>
+                    <div className="text-xs text-gray mt-1">
+                      Paid {r.paymentDate ? fmt(r.paymentDate) : "-"} · Txn: {getPaymentNumber(r) || "-"}
+                      {r.completedAt ? ` · Closed ${fmt(r.completedAt)}` : ""}
+                    </div>
+                    {(receipts.length > 0 || photos.length > 0) && (
+                      <div className="text-xs mt-1" style={{ color:"var(--blue)" }}>
+                        {receipts.length} receipt{receipts.length !== 1 ? "s" : ""} · {photos.length} photo{photos.length !== 1 ? "s" : ""} submitted
+                      </div>
+                    )}
+                  </div>
+                  <div className="amount" style={{ fontSize:18 }}>{fmtAmt(r.amount)}</div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSelected(r)}>
+                    <AppButtonIcon name="view" tone="blue" />View Full Record
+                  </button>
+                  <button className="btn btn-primary btn-sm" onClick={() => setShowPDF(r)}>
+                    <AppButtonIcon name="download" tone="navy" />Download PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      {selected && (
+        <RequestDetail req={selected} user={user} onClose={() => setSelected(null)}
+          onApprove={() => {}} onReject={() => {}} onEdit={() => {}}
+          onOpenPaymentForm={() => {}}
+          onDownload={r => setShowPDF(r)}
+          onApproveAccountability={() => {}}
+          onRejectAccountability={() => {}}
+        />
       )}
       {showPDF && <PDFModal req={showPDF} onClose={() => setShowPDF(null)} />}
     </div>
@@ -12401,7 +12677,12 @@ export default function App() {
     }
   }, [user, syncState]);
 
-  const handleSubmitAccountability = useCallback((r, form) => { submitAccountability(r, user, form); syncState(); }, [user, syncState]);
+  const handleSubmitAccountability = useCallback((r, form) => {
+    submitAccountability(r, user, form);
+    syncState();
+    supabase.from("requests").update({ status: r.status, supporting_docs: buildRequestSupportingDocs(r) }).eq("request_number", r.id)
+      .then(({ error }) => { if (error) console.warn("Could not sync accountability submission:", error.message); });
+  }, [user, syncState]);
   const handleApproveAccountability = useCallback((r) => {
     approveAccountability(r, user);
     syncState();
@@ -12618,11 +12899,13 @@ export default function App() {
     const idx = _requests.findIndex(r => r.id === draftId);
     if (idx === -1) return;
     const req = _requests[idx];
-    if (req.status !== "draft") return;
+    const isDeletable = req.status === "draft" || req.status.startsWith("rejected");
+    if (!isDeletable) return;
+    if (req.requesterId !== user.id && user.role !== "admin") return;
     _requests.splice(idx, 1);
     supabase.from("requests").delete().eq("request_number", draftId)
-      .then(({ error }) => { if (error) console.warn("Could not delete draft from Supabase:", error.message); });
-    addLog(draftId, user.id, "Draft deleted");
+      .then(({ error }) => { if (error) console.warn("Could not delete request from Supabase:", error.message); });
+    addLog(draftId, user.id, req.status === "draft" ? "Draft deleted" : "Rejected request deleted");
     syncState();
   }, [user, syncState]);
 
@@ -12785,6 +13068,11 @@ export default function App() {
   const paymentQueueCount = requests.filter(r =>
     ["approved","pending_payment_accountant","paid","pending_accountability","senior_accountant_approved"].includes(r.status)
   ).length;
+  const pendingAccountabilityCount = user
+    ? (["payment_accountant","admin"].includes(user.role)
+        ? requests.filter(r => !r.isVendorPayment && ["paid","pending_accountability"].includes(r.status)).length
+        : requests.filter(r => !r.isVendorPayment && r.requesterId === user.id && ["paid","pending_accountability"].includes(r.status)).length)
+    : 0;
   const notifCount   = _notifications.filter(n=>n.userId===user?.id&&!n.read).length;
   const draftCount   = requests.filter(r=>r.requesterId===user?.id&&r.status==="draft").length;
   const messageUnreadCount = getUnreadMessagesCountForUser(user);
@@ -12866,7 +13154,7 @@ export default function App() {
     home:"Home",
     dashboard:"Finance Dashboard", admin_center:"Admin Center", new_request:"New Request", my_requests:"My Requests", my_drafts:"My Drafts",
     pending_approvals:"Pending Approvals", approval_history:"Approval History",
-    payment_queue:"Payment Queue", notifications:"Notifications", financial_reports:"Financial Reports",
+    payment_queue:"Payment Queue", pending_accountability:"Pending Accountability", paid_vouchers:"Paid Vouchers", notifications:"Notifications", financial_reports:"Financial Reports",
     my_signature:"My E-Signature",
     messages_center:"Messages Center",
     admin_users:"User Management", admin_budgets:"Project Budgets", admin_all_requests:"All Requests", admin_logs:"Activity Logs",
@@ -12903,6 +13191,7 @@ export default function App() {
             filterFn={r=>r.requesterId===user.id&&r.status!=="draft"}
             onApprove={handleApprove} onReject={handleReject} onPay={handlePay}
             onSaveEdit={(form,submit,editReq)=>handleSaveRequest(form,submit,editReq)}
+            onDelete={handleDeleteDraft}
             onSubmitAccountability={handleSubmitAccountability}
             onApproveAccountability={handleApproveAccountability}
             onRejectAccountability={handleRejectAccountability}
@@ -12941,6 +13230,20 @@ export default function App() {
         if (!hasDashboardAccess(user, "payment_queue")) return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
         return <PaymentQueue user={effectivePageUser} requests={requests} onPay={handlePay} onApproveAccountability={handleApproveAccountability} onRejectAccountability={handleRejectAccountability} />;
 
+      case "pending_accountability":
+        return (
+          <PendingAccountabilityPage
+            user={user}
+            requests={requests}
+            onSubmitAccountability={handleSubmitAccountability}
+            onApproveAccountability={handleApproveAccountability}
+            onRejectAccountability={handleRejectAccountability}
+          />
+        );
+
+      case "paid_vouchers":
+        return <PaidVouchersPage user={user} requests={requests} />;
+
       case "notifications":
         return <Notifications user={user} setPage={setPage} onRead={bumpNotifTick} />;
 
@@ -12974,6 +13277,20 @@ export default function App() {
             }}
             onMarkAnnouncementsRead={() => {
               if (markAnnouncementsRead(user.id)) syncState();
+            }}
+            onAcknowledgeAnnouncement={(announcementId) => {
+              // Mark a specific announcement as acknowledged (uses same readBy mechanism)
+              let changed = false;
+              _announcements = _announcements.map(item => {
+                if (item.id !== announcementId) return item;
+                if (item.readBy?.includes(user.id)) return item;
+                changed = true;
+                const newReadBy = [...(item.readBy || []), user.id];
+                supabase.from("announcements").update({ read_by: newReadBy }).eq("id", item.id)
+                  .then(({ error }) => { if (error) console.warn("[ann-ack]", error.message); });
+                return { ...item, readBy: newReadBy };
+              });
+              if (changed) syncState();
             }}
             onRefresh={async () => {
               await Promise.all([fetchMessagesFromDB(), fetchAnnouncementsFromDB(), fetchNotificationsFromDB()]);
@@ -13036,17 +13353,24 @@ export default function App() {
         return <FinancialReports projects={projects} requests={requests} />;
 
       case "all_requests":
-      case "admin_all_requests":
+      case "admin_all_requests": {
+        const restrictedRoles = ["payment_accountant","executive_director"];
+        const allReqFilter = restrictedRoles.includes(user.role)
+          ? r => r.status !== "draft"
+          : undefined;
         return (
           <RequestsList user={user} requests={requests} title="All Requests"
+            filterFn={allReqFilter}
             onApprove={handleApprove} onReject={handleReject} onPay={handlePay}
             onSaveEdit={(form,submit,editReq)=>handleSaveRequest(form,submit,editReq)}
+            onDelete={handleDeleteDraft}
             onSubmitAccountability={handleSubmitAccountability}
             onApproveAccountability={handleApproveAccountability}
             onRejectAccountability={handleRejectAccountability}
             onOpenSignatureSettings={()=>setPage("my_signature")}
           />
         );
+      }
 
       case "logs":
       case "admin_logs":
@@ -13073,7 +13397,7 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div className="layout">
-        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} draftCount={draftCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapsed} />
+        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} notifCount={notifCount} paymentQueueCount={paymentQueueCount} pendingAccountabilityCount={pendingAccountabilityCount} draftCount={draftCount} onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapsed} />
         {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <div className={`main${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
           <div className="topbar">
