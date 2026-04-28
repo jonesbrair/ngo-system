@@ -6645,7 +6645,6 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           {QA("calendar","Apply for Leave","leave_apply")}
           {QA("requests","My Requests","my_requests")}
           {(isApprover||isAdmin) && QA("pending_approvals","Pending Approvals","pending_approvals")}
-          {QA("com","Messages","messages_center")}
           {QA("workflow","Pending Accountability","pending_accountability", pendingAccountabilityCount || null)}
           {QA("edit","My E-Signature","my_signature")}
         </div>
