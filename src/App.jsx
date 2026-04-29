@@ -6680,6 +6680,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           {QA("requests","My Requests","my_requests")}
           {(isApprover||isAdmin) && QA("pending_approvals","Pending Approvals","pending_approvals")}
           {QA("workflow","Pending Accountability","pending_accountability", pendingAccountabilityCount || null)}
+          {QA("doc","Complete Vouchers","paid_vouchers")}
           {QA("edit","My E-Signature","my_signature")}
         </div>
       </div>
@@ -6767,11 +6768,12 @@ function SystemHome({ setPage, user }) {
     { key:"com",      icon:"com",     label:"Communication",        sub:"Reserved entry point for messaging and communication workflows.",                                             meta:"Coming next",       page:"communication",      tone:"amber" },
   ];
 
-  if (isAdmin) {
+  const isSystemAdmin = user.role === "admin";
+  if (isSystemAdmin) {
     homeCards.splice(1, 0, { key:"admin", icon:"admin", label:"Admin Center", sub:"Open the administrator workspace for users, budgets, request visibility, and system control.", meta:"Independent module", page:"admin_center", tone:"blue" });
   }
 
-  homeCards.splice(isAdmin ? 3 : 2, 0, {
+  homeCards.splice(isSystemAdmin ? 3 : 2, 0, {
     key:"hr",
     icon:"hr",
     label: hasDashboardAccess(user, "human_resource") ? "HR Manager" : "Human Resources",
@@ -9819,6 +9821,29 @@ function PDFModal({ req, onClose }) {
   const activityVenueForVoucher = req.venue || "Not provided";
   const activityDateForVoucher = req.startDate || req.endDate ? formatActivityPlanDateRange(req) : "Not provided";
   const paymentNumber = getPaymentNumber(req);
+  const docRef = useRef(null);
+
+  function handleDownload() {
+    const el = docRef.current;
+    if (!el) { window.print(); return; }
+    const styleContent = Array.from(document.querySelectorAll('style')).map(function(s){ return s.textContent || ''; }).join('\n');
+    const win = window.open('', '_blank', 'width=900,height=700,scrollbars=yes');
+    if (!win) { window.print(); return; }
+    win.document.open();
+    win.document.write(
+      '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Voucher – ' + req.id + '</title>' +
+      '<style>' + styleContent + '</style>' +
+      '<style>body{margin:0;padding:32px;background:#fff;font-family:Roboto,system-ui,sans-serif}' +
+      '.pdf-doc{box-shadow:none!important;max-width:760px!important;margin:0 auto!important;overflow:visible!important}' +
+      '@media print{body{padding:0}.pdf-doc{max-width:100%!important}}' +
+      '.modal,.modal-overlay,.overlay,.sidebar,.navbar,.print-btn{display:none!important}</style>' +
+      '</head><body>' + el.outerHTML + '</body></html>'
+    );
+    win.document.close();
+    win.focus();
+    setTimeout(function(){ try{ win.print(); }catch(e){} }, 800);
+  }
+
   const steps = [
     { role:"supervisor",      label:"Program Manager" },
     { role:"accountant",      label:"Accountant" },
@@ -9833,14 +9858,14 @@ function PDFModal({ req, onClose }) {
       : null),
   }));
   return (
-    <Modal title={paymentNumber ? "Payment Voucher Preview" : "Document Preview"} onClose={onClose} size="modal-lg"
+    <Modal title={paymentNumber ? "Payment Voucher" : "Document Preview"} onClose={onClose} size="modal-lg"
       footer={
         <div className="flex gap-3 items-center">
-          <span className="text-xs text-gray">Use Ctrl+P / Cmd+P to save as PDF</span>
-          <button className="btn btn-primary" onClick={()=>window.print()}><AppButtonIcon name="download" tone="navy" />Print / Export PDF</button>
+          <span className="text-xs text-gray">Opens a print-ready window — save as PDF with Ctrl+P / Cmd+P</span>
+          <button className="btn btn-primary" onClick={handleDownload}><AppButtonIcon name="download" tone="navy" />Download PDF</button>
         </div>
       }>
-      <div className="pdf-doc" style={{ fontFamily:"Roboto, system-ui, sans-serif" }}>
+      <div className="pdf-doc" ref={docRef} style={{ fontFamily:"Roboto, system-ui, sans-serif" }}>
         {paymentNumber ? (
           <div>
             <div className="report-header">
@@ -10389,7 +10414,11 @@ function PendingApprovals({ user, requests, onApprove, onReject, onPay, onSubmit
   // Pre-payment approval queue (Stages 1 approval chain)
   const pending = getPendingForRole(user.role, requests, user.id);
   // Post-payment accountability review queue (Stages 4-7)
-  const pendingAccountabilities = getPendingAccountabilityForRole(user.role, requests, user.id);
+  // Requesters see their paid items in PendingAccountabilityPage — exclude them here
+  const allPendingAccountabilities = getPendingAccountabilityForRole(user.role, requests, user.id);
+  const pendingAccountabilities = user.role === "requester"
+    ? allPendingAccountabilities.filter(r => !["paid","pending_accountability"].includes(r.status))
+    : allPendingAccountabilities;
 
   const [selected,      setSelected]      = useState(null);
   const [paymentTarget, setPaymentTarget] = useState(null);
@@ -10692,7 +10721,7 @@ function PendingAccountabilityPage({ user, requests, onSubmitAccountability, onA
                     <AppButtonIcon name="view" tone="blue" />View Details
                   </button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setShowPDF(r)}>
-                    <AppButtonIcon name="download" tone="navy" />Preview
+                    <AppButtonIcon name="download" tone="navy" />Download Voucher
                   </button>
                 </div>
               </div>
@@ -10727,35 +10756,47 @@ function PendingAccountabilityPage({ user, requests, onSubmitAccountability, onA
   );
 }
 
-// ── Paid Vouchers Page (final state – completed requests) ─────────────────────
+// ── Complete Vouchers Page (accountability submitted and beyond) ──────────────
+const COMPLETE_VOUCHER_STATUSES = ["accountability_submitted","supervisor_approved","senior_accountant_approved","completed"];
+
+function getCompleteVoucherStatusLabel(status) {
+  const map = {
+    accountability_submitted: { label:"Accountability Submitted", bg:"#eff6ff", color:"#1d4ed8" },
+    supervisor_approved:      { label:"Supervisor Approved",      bg:"#ecfdf5", color:"#065f46" },
+    senior_accountant_approved: { label:"Accountant Approved",   bg:"#f5f3ff", color:"#5b21b6" },
+    completed:                { label:"Completed",                bg:"#d1fae5", color:"#065f46" },
+  };
+  return map[status] || { label: status, bg:"#f1f5f9", color:"#475569" };
+}
+
 function PaidVouchersPage({ user, requests }) {
   const isPaymentOfficer = ["payment_accountant","admin"].includes(user.role);
 
-  const completed = isPaymentOfficer
-    ? requests.filter(r => r.status === "completed" && !r.isVendorPayment)
-    : requests.filter(r => r.status === "completed" && !r.isVendorPayment && r.requesterId === user.id);
+  const vouchers = isPaymentOfficer
+    ? requests.filter(r => COMPLETE_VOUCHER_STATUSES.includes(r.status) && !r.isVendorPayment)
+    : requests.filter(r => COMPLETE_VOUCHER_STATUSES.includes(r.status) && !r.isVendorPayment && r.requesterId === user.id);
 
   const [showPDF, setShowPDF] = useState(null);
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState("");
 
   const filtered = search.trim()
-    ? completed.filter(r =>
+    ? vouchers.filter(r =>
         r.title.toLowerCase().includes(search.toLowerCase()) ||
         r.id.toLowerCase().includes(search.toLowerCase()) ||
         (r.requesterName || "").toLowerCase().includes(search.toLowerCase())
       )
-    : completed;
+    : vouchers;
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">Paid Vouchers</div>
-          <div className="page-sub">Fully accounted and closed payment vouchers.</div>
+          <div className="page-title">Complete Vouchers</div>
+          <div className="page-sub">Paid vouchers with submitted accountability — downloadable documents.</div>
         </div>
         <span className="sbadge" style={{ background:"#d1fae5", color:"#065f46", fontSize:13, padding:"6px 14px" }}>
-          {completed.length} completed
+          {vouchers.length} voucher{vouchers.length !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -10775,45 +10816,60 @@ function PaidVouchersPage({ user, requests }) {
         <div className="card">
           <div className="empty-state">
             <div className="empty-icon"><IconBadge name="doc" tone="green" size={28} /></div>
-            <div className="empty-text">No paid vouchers yet</div>
-            <div className="empty-sub">Vouchers that have been fully accounted for will appear here.</div>
+            <div className="empty-text">No complete vouchers yet</div>
+            <div className="empty-sub">Vouchers with submitted accountability will appear here for download.</div>
           </div>
         </div>
       ) : (
         filtered.map(r => {
           const receipts = getAccountabilityReceiptFiles(r);
           const photos = getAccountabilityPhotoFiles(r);
+          const statusMeta = getCompleteVoucherStatusLabel(r.status);
+          const isFullyDone = r.status === "completed";
           return (
-            <div key={r.id} className="pending-card" style={{ marginBottom:12, borderLeft:"4px solid #10b981" }}>
+            <div key={r.id} className="pending-card" style={{ marginBottom:12, borderLeft:`4px solid ${isFullyDone ? "#10b981" : "#3b82f6"}` }}>
               <div className="pending-card-body">
                 <div className="flex items-center justify-between">
                   <div style={{ flex:1, minWidth:0 }}>
                     <div className="flex items-center gap-2 mb-1" style={{ flexWrap:"wrap" }}>
                       <span className="ref">{r.id}</span>
-                      <span className="sbadge" style={{ background:"#d1fae5", color:"#065f46", fontWeight:800 }}>✓ COMPLETED</span>
-                      <span className="paid-stamp" style={{ fontSize:11, padding:"2px 8px" }}>PAID</span>
+                      <span className="sbadge" style={{ background:statusMeta.bg, color:statusMeta.color, fontWeight:700 }}>
+                        {isFullyDone ? "✓ " : ""}{statusMeta.label}
+                      </span>
+                      {getPaymentNumber(r) && <span className="paid-stamp" style={{ fontSize:11, padding:"2px 8px" }}>PAID</span>}
                     </div>
                     <div style={{ fontWeight:600, fontSize:15, color:"var(--navy)" }}>{r.title}</div>
                     <div className="text-sm text-gray mt-1">{r.department} · {r.requesterName}</div>
                     <div className="text-xs text-gray mt-1">
                       Paid {r.paymentDate ? fmt(r.paymentDate) : "-"} · Txn: {getPaymentNumber(r) || "-"}
+                      {r.accountabilitySubmittedAt ? ` · Accountability submitted ${fmt(r.accountabilitySubmittedAt)}` : ""}
                       {r.completedAt ? ` · Closed ${fmt(r.completedAt)}` : ""}
                     </div>
                     {(receipts.length > 0 || photos.length > 0) && (
                       <div className="text-xs mt-1" style={{ color:"var(--blue)" }}>
-                        {receipts.length} receipt{receipts.length !== 1 ? "s" : ""} · {photos.length} photo{photos.length !== 1 ? "s" : ""} submitted
+                        {receipts.length} receipt{receipts.length !== 1 ? "s" : ""} · {photos.length} photo{photos.length !== 1 ? "s" : ""} attached
                       </div>
                     )}
                   </div>
                   <div className="amount" style={{ fontSize:18 }}>{fmtAmt(r.amount)}</div>
                 </div>
-                <div className="flex gap-2 mt-3">
+                <div className="flex gap-2 mt-3" style={{ flexWrap:"wrap" }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => setSelected(r)}>
-                    <AppButtonIcon name="view" tone="blue" />View Full Record
+                    <AppButtonIcon name="view" tone="blue" />View Record
                   </button>
                   <button className="btn btn-primary btn-sm" onClick={() => setShowPDF(r)}>
-                    <AppButtonIcon name="download" tone="navy" />Download PDF
+                    <AppButtonIcon name="download" tone="navy" />Download Voucher
                   </button>
+                  {receipts.map(file => (
+                    <a key={file.id} href={file.dataUrl} download={file.name} className="btn btn-ghost btn-sm">
+                      Receipt
+                    </a>
+                  ))}
+                  {photos.map(file => (
+                    <a key={file.id} href={file.dataUrl} download={file.name} className="btn btn-ghost btn-sm">
+                      Photo
+                    </a>
+                  ))}
                 </div>
               </div>
             </div>
@@ -10838,27 +10894,22 @@ function PaidVouchersPage({ user, requests }) {
 /**
  * Payment Queue – Payment Officer view.
  *
- * Three sections:
- *  1. Ready for Payment   – status "approved" (Stage 2)
- *  2. Pending Accountability – status "paid" / "pending_accountability"
- *  3. Final Review Queue  – status "senior_accountant_approved" (Stage 7)
+ * Two sections:
+ *  1. Ready for Payment        – status "approved" / "pending_payment_accountant"
+ *  2. Final Accountability Review – status "senior_accountant_approved" (Stage 7)
  *
- * The "Mark as Paid" button is shown ONLY for requests that are APPROVED
- * and have not yet been paid.  It is permanently hidden once payment is done.
+ * After marking as paid, items move to Pending Accountability (dedicated page).
+ * After accountability is submitted, items appear in Complete Vouchers.
  */
 function PaymentQueue({ user, requests, onPay, onApproveAccountability, onRejectAccountability }) {
-  // Stage 2: approved requests ready for payment
+  // Ready for payment
   const approvedQueue = requests.filter(r =>
     (r.status === "approved" || r.status === "pending_payment_accountant") && !r.isVendorPayment
   );
   const vendorQueue = requests.filter(r =>
     (r.status === "approved" || r.status === "pending_payment_accountant") && r.isVendorPayment
   );
-  // Stage 3: paid and waiting for requester accountability submission / revision
-  const pendingAccountabilityQueue = requests.filter(r =>
-    !r.isVendorPayment && ["paid", "pending_accountability"].includes(r.status)
-  );
-  // Stage 7: accountability in final review
+  // Final accountability review — payment officer approves/closes
   const finalReviewQueue = requests.filter(r => r.status === "senior_accountant_approved");
 
   const [selected,      setSelected]      = useState(null);
@@ -10867,7 +10918,7 @@ function PaymentQueue({ user, requests, onPay, onApproveAccountability, onReject
   const [rejecting,     setRejecting]     = useState(null);
   const [reason,        setReason]        = useState("");
 
-  const totalCount = approvedQueue.length + vendorQueue.length + pendingAccountabilityQueue.length + finalReviewQueue.length;
+  const totalCount = approvedQueue.length + vendorQueue.length + finalReviewQueue.length;
 
   return (
     <div className="page">
@@ -10925,7 +10976,7 @@ function PaymentQueue({ user, requests, onPay, onApproveAccountability, onReject
                   <AppButtonIcon name="view" tone="blue" />View
                 </button>
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowPDF(r)}>
-                  <AppButtonIcon name="download" tone="navy" />Preview
+                  <AppButtonIcon name="download" tone="navy" />Download Voucher
                 </button>
               </div>
             </div>
@@ -10933,59 +10984,7 @@ function PaymentQueue({ user, requests, onPay, onApproveAccountability, onReject
         ))
       )}
 
-      {/* ── Section 2: Paid requests waiting for accountability ── */}
-      <div className="font-bold text-sm mb-2 text-navy" style={{ marginTop:16 }}>
-        Pending Accountability
-        <span className="sbadge" style={{ marginLeft:8, background:"#fef3c7", color:"#92400e" }}>{pendingAccountabilityQueue.length}</span>
-      </div>
-
-      {pendingAccountabilityQueue.length === 0 ? (
-        <div className="card mb-4">
-          <div className="empty-state">
-            <div className="empty-icon"><IconBadge name="workflow" tone="amber" size={22} /></div>
-            <div className="empty-text">No paid requests are waiting for accountability</div>
-            <div className="empty-sub">Requests marked paid will appear here until the requester submits accountability.</div>
-          </div>
-        </div>
-      ) : (
-        pendingAccountabilityQueue.map(r => (
-          <div key={`${r.id}-pending-acc`} className="pending-card" style={{ marginBottom:12, borderColor:"#f59e0b" }}>
-            <div className="pending-card-body">
-              <div className="flex items-center justify-between">
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="ref">{r.id}</span>
-                    <StatusBadge status={r.status} />
-                    <span className="sbadge" style={{ background:"#fef3c7", color:"#92400e" }}>Pending Accountability</span>
-                  </div>
-                  <div style={{ fontWeight:600, fontSize:15.5, color:"var(--navy)" }}>{r.title}</div>
-                  <div className="text-sm text-gray mt-1">{r.department} · {r.requesterName}</div>
-                  <div className="text-xs text-gray mt-1">
-                    Paid on {r.paymentDate ? fmt(r.paymentDate) : "-"}
-                    {getPaymentNumber(r) ? ` · Transaction ID: ${getPaymentNumber(r)}` : ""}
-                  </div>
-                  {r.accountabilityRejectionReason && (
-                    <div className="text-xs mt-1" style={{ color:"#991b1b" }}>
-                      Revision requested: {r.accountabilityRejectionReason}
-                    </div>
-                  )}
-                </div>
-                <div className="amount" style={{ fontSize:18 }}>{fmtAmt(r.amount)}</div>
-              </div>
-              <div className="flex gap-2 mt-3">
-                <button className="btn btn-amber btn-sm" onClick={() => setSelected(r)}>
-                  <AppButtonIcon name="workflow" tone="amber" />Pending Accountability
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setShowPDF(r)}>
-                  <AppButtonIcon name="download" tone="navy" />Preview
-                </button>
-              </div>
-            </div>
-          </div>
-        ))
-      )}
-
-      {/* ── Section 3: Final Accountability Review (Stage 7) ── */}
+      {/* ── Section 2: Final Accountability Review (Stage 7) ── */}
       <div className="font-bold text-sm mb-2 text-navy" style={{ marginTop:16 }}>
         Final Accountability Review
         <span className="sbadge" style={{ marginLeft:8, background:"#ede9fe", color:"#7c3aed" }}>{finalReviewQueue.length}</span>
@@ -13259,7 +13258,7 @@ export default function App() {
     home:"Home",
     dashboard:"Finance Dashboard", admin_center:"Admin Center", new_request:"New Request", my_requests:"My Requests", my_drafts:"My Drafts",
     pending_approvals:"Pending Approvals", approval_history:"Approval History",
-    payment_queue:"Payment Queue", pending_accountability:"Pending Accountability", paid_vouchers:"Paid Vouchers", notifications:"Notifications", financial_reports:"Financial Reports",
+    payment_queue:"Payment Queue", pending_accountability:"Pending Accountability", paid_vouchers:"Complete Vouchers", notifications:"Notifications", financial_reports:"Financial Reports",
     my_signature:"My E-Signature",
     messages_center:"Messages Center",
     admin_users:"User Management", admin_budgets:"Project Budgets", admin_all_requests:"All Requests", admin_logs:"Activity Logs",
@@ -13285,6 +13284,7 @@ export default function App() {
         return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
 
       case "admin_center":
+        if (user.role !== "admin") return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
         return <AdminDashboard requests={requests} users={_users} logs={_logs} projects={projects} setPage={setPage} />;
 
       case "new_request":
