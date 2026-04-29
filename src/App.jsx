@@ -3294,8 +3294,11 @@ textarea{resize:vertical;min-height:88px}
 @media(max-width:900px){.sidebar-toggle-row{display:none}}
 
 /* ── Quick Actions Section ── */
-.quick-actions-wrap{position:relative;z-index:1}
-.quick-actions-section{padding:0 14px 4px}
+.quick-actions-wrap{position:relative;z-index:1;display:flex;flex-direction:column;overflow:hidden;max-height:360px}
+.quick-actions-section{padding:0 14px 4px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(125,211,252,.25) transparent}
+.quick-actions-section::-webkit-scrollbar{width:3px}
+.quick-actions-section::-webkit-scrollbar-track{background:transparent}
+.quick-actions-section::-webkit-scrollbar-thumb{background:rgba(125,211,252,.3);border-radius:3px}
 .quick-action-item{display:flex;align-items:center;gap:10px;padding:9px 12px;margin:0 0 5px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;transition:all .18s ease;border:1px solid rgba(125,211,252,.22);background:rgba(125,211,252,.07);color:#fff;user-select:none}
 .quick-action-item:hover{background:rgba(125,211,252,.14);border-color:rgba(125,211,252,.38);transform:translateX(3px)}
 .quick-action-item.active{background:rgba(125,211,252,.19);border-color:rgba(125,211,252,.46)}
@@ -6680,7 +6683,7 @@ function Sidebar({ user, page, setPage, pendingCount, notifCount, paymentQueueCo
           {QA("requests","My Requests","my_requests")}
           {(isApprover||isAdmin) && QA("pending_approvals","Pending Approvals","pending_approvals")}
           {QA("workflow","Pending Accountability","pending_accountability", pendingAccountabilityCount || null)}
-          {QA("doc","Complete Vouchers","paid_vouchers")}
+          {["finance_manager","accountant","payment_accountant","admin"].includes(user.role) && QA("doc","Complete Vouchers","paid_vouchers")}
           {QA("edit","My E-Signature","my_signature")}
         </div>
       </div>
@@ -13347,6 +13350,8 @@ export default function App() {
         );
 
       case "paid_vouchers":
+        if (!["finance_manager","accountant","payment_accountant","admin"].includes(user.role))
+          return <Dashboard user={user} requests={requests} setPage={setPage} draftCount={draftCount} />;
         return <PaidVouchersPage user={user} requests={requests} />;
 
       case "notifications":
