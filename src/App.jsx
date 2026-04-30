@@ -94,9 +94,32 @@ async function fetchRequestsFromDB() {
       if (sd.paidAt)               exists.paidAt               = sd.paidAt;
       if (sd.paymentNumber)        exists.paymentNumber        = sd.paymentNumber;
       if (sd.accountabilityStatus) exists.accountabilityStatus = sd.accountabilityStatus;
+      // Self-heal: if DB still says "approved" but payment was already recorded, fix the status
+      if (exists.status === "approved" && sd.transactionId) {
+        exists.status = exists.isVendorPayment ? "completed" : "paid";
+        supabase.from("requests").update({ status: exists.status }).eq("request_number", exists.id)
+          .then(({ error }) => { if (error) console.warn("Could not repair payment status:", error.message); });
+      }
       if (!exists.projectName  && sd.projectName)  exists.projectName  = sd.projectName;
       if (!exists.activityName && sd.activityName) exists.activityName = sd.activityName;
       if (!exists.activityCode && sd.activityCode) exists.activityCode = sd.activityCode;
+      // Sync accountability fields so approvers see the submitted report data
+      if (sd.accountabilityReportData      != null) exists.accountabilityReportData      = sd.accountabilityReportData;
+      if (sd.accountabilityReceipts?.length)        exists.accountabilityReceipts        = sd.accountabilityReceipts;
+      if (sd.accountabilityPhotos?.length)          exists.accountabilityPhotos          = sd.accountabilityPhotos;
+      if (sd.accountabilityRefundProof?.length)     exists.accountabilityRefundProof     = sd.accountabilityRefundProof;
+      if (sd.accountabilityRefundStatus    != null) exists.accountabilityRefundStatus    = sd.accountabilityRefundStatus;
+      if (sd.accountabilityFinanceSummary  != null) exists.accountabilityFinanceSummary  = sd.accountabilityFinanceSummary;
+      if (sd.accountabilitySubmittedAt     != null) exists.accountabilitySubmittedAt     = sd.accountabilitySubmittedAt;
+      if (sd.accountabilitySubmittedById   != null) exists.accountabilitySubmittedById   = sd.accountabilitySubmittedById;
+      if (sd.accountabilitySubmittedByName != null) exists.accountabilitySubmittedByName = sd.accountabilitySubmittedByName;
+      exists.accountabilityRejectionReason = sd.accountabilityRejectionReason ?? exists.accountabilityRejectionReason ?? null;
+      if (sd.accountabilityRejectedBy      != null) exists.accountabilityRejectedBy      = sd.accountabilityRejectedBy;
+      if (sd.accountabilityRejectedByRole  != null) exists.accountabilityRejectedByRole  = sd.accountabilityRejectedByRole;
+      if (sd.accountabilityRejectedAt      != null) exists.accountabilityRejectedAt      = sd.accountabilityRejectedAt;
+      if (sd.completedAt                   != null) exists.completedAt                   = sd.completedAt;
+      if (sd.completedById                 != null) exists.completedById                 = sd.completedById;
+      if (sd.completedByName               != null) exists.completedByName               = sd.completedByName;
       if (Array.isArray(row.request_approvals) && row.request_approvals.length >= exists.approvals.length) {
         const userMap2 = new Map(_users.map(u => [u.id, u]));
         exists.approvals = row.request_approvals.map(a => ({
@@ -812,9 +835,9 @@ const STATUS_CFG = {
   rejected_executive_director:{ label:"Rejected – Executive Director", color:"#991b1b", bg:"#fee2e2", dot:"#ef4444" },
 
   // Stage 1 complete – ED approved, awaiting payment
-  approved:                { label:"APPROVED",                   color:"#065f46", bg:"#d1fae5", dot:"#10b981" },
+  approved:                { label:"PENDING PAYMENT",            color:"#92400e", bg:"#fef3c7", dot:"#f59e0b" },
   // Legacy alias so any existing stored requests with old status still render
-  pending_payment_accountant: { label:"APPROVED",               color:"#065f46", bg:"#d1fae5", dot:"#10b981" },
+  pending_payment_accountant: { label:"PENDING PAYMENT",        color:"#92400e", bg:"#fef3c7", dot:"#f59e0b" },
 
   // Stage 2 – Payment recorded
   paid:                    { label:"PAID",                       color:"#1e3a8a", bg:"#dbeafe", dot:"#3b82f6" },
@@ -1121,6 +1144,24 @@ function buildRequestSupportingDocs(req) {
     durationDays:            req.durationDays            ?? null,
     signature:               req.signature               ?? null,
     file:                    req.file                    ?? null,
+    // Accountability fields
+    accountabilityStatus:          req.accountabilityStatus          || null,
+    accountabilityReportData:      req.accountabilityReportData      ?? null,
+    accountabilityReceipts:        req.accountabilityReceipts        || [],
+    accountabilityPhotos:          req.accountabilityPhotos          || [],
+    accountabilityRefundProof:     req.accountabilityRefundProof     || [],
+    accountabilityRefundStatus:    req.accountabilityRefundStatus    || null,
+    accountabilityFinanceSummary:  req.accountabilityFinanceSummary  ?? null,
+    accountabilitySubmittedAt:     req.accountabilitySubmittedAt     ?? null,
+    accountabilitySubmittedById:   req.accountabilitySubmittedById   ?? null,
+    accountabilitySubmittedByName: req.accountabilitySubmittedByName ?? null,
+    accountabilityRejectionReason: req.accountabilityRejectionReason ?? null,
+    accountabilityRejectedBy:      req.accountabilityRejectedBy      ?? null,
+    accountabilityRejectedByRole:  req.accountabilityRejectedByRole  ?? null,
+    accountabilityRejectedAt:      req.accountabilityRejectedAt      ?? null,
+    completedAt:                   req.completedAt                   ?? null,
+    completedById:                 req.completedById                 ?? null,
+    completedByName:               req.completedByName               ?? null,
   };
 }
 
@@ -12812,20 +12853,21 @@ export default function App() {
   const handlePay     = useCallback((r, ref, date) => {
     const result = payRequest(r, user, ref, date);
     if (result.ok) {
+      const paid = result.request;
       syncState();
       supabase.from("requests").update({
-        status: r.status,
+        status: paid.status,
         supporting_docs: {
-          ...buildRequestSupportingDocs(r),
-          transactionId:        r.transactionId        || null,
-          paymentNumber:        r.paymentNumber        || null,
-          paymentDate:          r.paymentDate          || null,
-          paidByName:           r.paidByName           || null,
-          paidById:             r.paidById             || null,
-          paidAt:               r.paidAt               || null,
-          accountabilityStatus: r.accountabilityStatus || "PENDING",
+          ...buildRequestSupportingDocs(paid),
+          transactionId:        paid.transactionId        || null,
+          paymentNumber:        paid.paymentNumber        || null,
+          paymentDate:          paid.paymentDate          || null,
+          paidByName:           paid.paidByName           || null,
+          paidById:             paid.paidById             || null,
+          paidAt:               paid.paidAt               || null,
+          accountabilityStatus: paid.accountabilityStatus || "PENDING",
         },
-      }).eq("request_number", r.id)
+      }).eq("request_number", paid.id)
         .then(({ error }) => { if (error) console.warn("Could not update payment status:", error.message); });
       const requester = _users.find(u => u.id === r.requesterId);
       if (requester?.email) {
@@ -12920,13 +12962,13 @@ export default function App() {
   const handleApproveAccountability = useCallback((r) => {
     approveAccountability(r, user);
     syncState();
-    supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
+    supabase.from("requests").update({ status: r.status, supporting_docs: buildRequestSupportingDocs(r) }).eq("request_number", r.id)
       .then(({ error }) => { if (error) console.warn("Could not update accountability status:", error.message); });
   }, [user, syncState]);
   const handleRejectAccountability = useCallback((r, reason) => {
     rejectAccountability(r, user, reason);
     syncState();
-    supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
+    supabase.from("requests").update({ status: r.status, supporting_docs: buildRequestSupportingDocs(r) }).eq("request_number", r.id)
       .then(({ error }) => { if (error) console.warn("Could not update accountability status:", error.message); });
   }, [user, syncState]);
   const handleSaveProject = useCallback((form, editProject=null) => {
