@@ -2940,9 +2940,12 @@ textarea{resize:vertical;min-height:88px}
   .modal-header,.modal-footer,.modal-close,.btn,.print-hide{display:none!important}
   .modal-body{padding:0!important;overflow:visible!important;max-height:none!important;height:auto!important}
   .pdf-doc{max-width:100%!important;padding:0!important;box-shadow:none!important;border-radius:0!important;margin:0!important;overflow:visible!important;height:auto!important}
-  /* Nothing breaks mid-element — content stays intact, pages add as needed */
-  .pdf-sec,.pdf-sig-box,.pdf-row,.pdf-field,.pending-card,.pending-card-body,table,tr,td,th{page-break-inside:avoid!important;break-inside:avoid!important}
-  .pdf-sec-title{page-break-after:avoid;break-after:avoid}
+  /* Signature boxes and field rows stay intact; sections can flow across pages */
+  .pdf-sig-box,.pdf-row,.pdf-field,tr{page-break-inside:avoid!important;break-inside:avoid!important}
+  .pdf-sec{page-break-inside:auto!important;break-inside:auto!important}
+  .pdf-sec-title,.pdf-fl{page-break-after:avoid!important;break-after:avoid!important}
+  /* Prevent scroll containers from clipping table content in print */
+  .table-wrap{overflow:visible!important}
   .paid-stamp{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 @keyframes fadein{from{opacity:0}to{opacity:1}}
@@ -10063,15 +10066,29 @@ function PDFModal({ req, onClose }) {
     win.document.write(
       '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Voucher – ' + req.id + '</title>' +
       '<style>' + styleContent + '</style>' +
-      '<style>body{margin:0;padding:32px;background:#fff;font-family:Roboto,system-ui,sans-serif}' +
+      '<style>' +
+      'body{margin:0;padding:32px;background:#fff;font-family:Roboto,system-ui,sans-serif}' +
       '.pdf-doc{box-shadow:none!important;max-width:760px!important;margin:0 auto!important;overflow:visible!important}' +
-      '@media print{body{padding:0}.pdf-doc{max-width:100%!important}}' +
-      '.modal,.modal-overlay,.overlay,.sidebar,.navbar,.print-btn{display:none!important}</style>' +
+      '.modal,.modal-overlay,.overlay,.sidebar,.navbar,.print-btn{display:none!important}' +
+      '@media print{' +
+      '@page{size:A4 portrait;margin:15mm}' +
+      'body{margin:0!important;padding:0!important;background:#fff!important}' +
+      /* Override the main-app visibility:hidden trick — in the print window the pdf-doc
+         is the only body child so we restore full visibility to avoid a blank first page */
+      'body *{visibility:visible!important}' +
+      '.pdf-doc{max-width:100%!important;padding:0!important;box-shadow:none!important;margin:0!important;overflow:visible!important}' +
+      '.pdf-sig-box,.pdf-row,.pdf-field,tr{page-break-inside:avoid!important;break-inside:avoid!important}' +
+      '.pdf-sec{page-break-inside:auto!important;break-inside:auto!important}' +
+      '.pdf-sec-title,.pdf-fl{page-break-after:avoid!important;break-after:avoid!important}' +
+      '.table-wrap{overflow:visible!important}' +
+      '.paid-stamp{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}' +
+      '}' +
+      '</style>' +
       '</head><body>' + el.outerHTML + '</body></html>'
     );
     win.document.close();
     win.focus();
-    setTimeout(function(){ try{ win.print(); }catch(e){} }, 800);
+    setTimeout(function(){ try{ win.print(); }catch(e){} }, 1200);
   }
 
   const steps = [
