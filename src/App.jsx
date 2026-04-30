@@ -85,6 +85,15 @@ async function fetchRequestsFromDB() {
       exists.supervisorId        = (row.supporting_docs?.supervisorId) ?? exists.supervisorId;
       exists.supervisorName      = (row.supporting_docs?.supervisorName) || exists.supervisorName;
       exists.lastRejectionReason = (row.supporting_docs?.lastRejectionReason) ?? exists.lastRejectionReason;
+      // Sync payment fields so all clients see payment details after the officer marks as paid
+      const sd = row.supporting_docs || {};
+      if (sd.transactionId)        exists.transactionId        = sd.transactionId;
+      if (sd.paymentDate)          exists.paymentDate          = sd.paymentDate;
+      if (sd.paidByName)           exists.paidByName           = sd.paidByName;
+      if (sd.paidById)             exists.paidById             = sd.paidById;
+      if (sd.paidAt)               exists.paidAt               = sd.paidAt;
+      if (sd.paymentNumber)        exists.paymentNumber        = sd.paymentNumber;
+      if (sd.accountabilityStatus) exists.accountabilityStatus = sd.accountabilityStatus;
       if (Array.isArray(row.request_approvals) && row.request_approvals.length >= exists.approvals.length) {
         const userMap2 = new Map(_users.map(u => [u.id, u]));
         exists.approvals = row.request_approvals.map(a => ({
@@ -8965,6 +8974,14 @@ function AccountabilityForm({ req, onSave, onClose }) {
           ...(draftPayload.reportData?.financials || {}),
           budgetLines: draftPayload.reportData?.financials?.budgetLines || req.accountabilityReportData?.financials?.budgetLines || [],
         },
+        participantData: {
+          ...(req.accountabilityReportData?.participantData || {}),
+          ...(draftPayload.reportData?.participantData || {}),
+        },
+        programQuality: {
+          ...(req.accountabilityReportData?.programQuality || {}),
+          ...(draftPayload.reportData?.programQuality || {}),
+        },
       }
     : (req.accountabilityReportData || null);
 
@@ -8976,12 +8993,10 @@ function AccountabilityForm({ req, onSave, onClose }) {
   }));
   const [errors, setErrors] = useState({});
   const [sectionsOpen, setSectionsOpen] = useState({
-    basic: true,
-    budget: true,
-    summary: true,
-    overspending: false,
-    refund: false,
-    uploads: true,
+    sectionA: true,
+    sectionB: true,
+    sectionC: true,
+    sectionD: true,
     validation: true,
   });
 
@@ -8991,12 +9006,18 @@ function AccountabilityForm({ req, onSave, onClose }) {
   const approvedBudgetCodes = financials.budgetLines.map(line => line.budgetCode);
   const hasExistingDraft = Boolean(draftPayload);
   const overallStatusMeta = getAccountabilityOverallStatusMeta(totals.status);
+  const participantTotals = getAccountabilityParticipantTotals(report.participantData);
+
   const instantWarnings = [];
   if (totals.missingActualCount > 0) instantWarnings.push(`Account for all approved budget lines. ${totals.missingActualCount} line${totals.missingActualCount === 1 ? "" : "s"} still need an actual amount.`);
-  if (totals.status === "OVERALL OVERSPENT" && !financials.overspendingExplanation.trim()) instantWarnings.push("Overspending detected. Provide an explanation before submission.");
-  if (totals.status === "OVERALL UNDERSPENT" && form.refundProof.length < 1) instantWarnings.push("Under-spending detected. Upload proof of refund before submission.");
-  if (form.receipts.length < 1) instantWarnings.push("Upload at least one expense receipt.");
-  if (form.photos.length < 2) instantWarnings.push("Upload at least two activity photos.");
+  if (totals.status === "OVERALL OVERSPENT" && !financials.overspendingExplanation.trim()) instantWarnings.push("Overspending detected. Provide an explanation in Section B before submission.");
+  if (totals.status === "OVERALL UNDERSPENT" && form.refundProof.length < 1) instantWarnings.push("Under-spending detected. Upload proof of refund in Section D before submission.");
+  if (!report.description.trim()) instantWarnings.push("Activity description is required in Section C.");
+  if (!report.achievements.trim()) instantWarnings.push("Achievements section is required in Section C.");
+  if (!report.recommendations.trim()) instantWarnings.push("Recommendations are required in Section C.");
+  if (!report.reportWriterSignature) instantWarnings.push("Report writer signature is required in Section C.");
+  if (form.receipts.length < 1) instantWarnings.push("Upload at least one expense receipt in Section D.");
+  if (form.photos.length < 2) instantWarnings.push("Upload at least two activity photos in Section D.");
 
   const updateReport = useCallback((updater) => {
     setForm(current => {
@@ -9010,6 +9031,21 @@ function AccountabilityForm({ req, onSave, onClose }) {
 
   const setReportField = useCallback((key, value) => {
     updateReport(current => ({ ...current, [key]: value }));
+  }, [updateReport]);
+
+  const setParticipantField = useCallback((key, value) => {
+    const normalizedValue = value === "" ? "" : String(Math.max(Math.floor(Number(value || 0)), 0));
+    updateReport(current => ({
+      ...current,
+      participantData: { ...(current.participantData || {}), [key]: normalizedValue },
+    }));
+  }, [updateReport]);
+
+  const setProgramQualityField = useCallback((key, value) => {
+    updateReport(current => ({
+      ...current,
+      programQuality: { ...(current.programQuality || {}), [key]: value },
+    }));
   }, [updateReport]);
 
   const setActualAmount = useCallback((lineId, value) => {
@@ -9035,13 +9071,40 @@ function AccountabilityForm({ req, onSave, onClose }) {
     }));
   }, [updateReport]);
 
+  const renderSignaturePreview = (signature, emptyText) => {
+    if (!signature) {
+      return (
+        <div style={{ padding: "14px 16px", borderRadius: 12, border: "1px dashed #d6deea", color: "var(--g500)", background: "#f8fafc" }}>
+          {emptyText}
+        </div>
+      );
+    }
+    return (
+      <div style={{ padding: "14px 16px", borderRadius: 12, border: "1px solid #dbe4f0", background: "#fff" }}>
+        {signature.type === "typed"
+          ? <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: 20, color: "var(--navy)" }}>{signature.value}</div>
+          : <img src={signature.value} alt="Signature" style={{ height: 54, maxWidth: "100%" }} />}
+      </div>
+    );
+  };
+
   const sectionCompletion = {
-    basic: Boolean(report.requestId && report.projectName.trim() && report.reportingOfficers.trim() && report.activityStartDate && report.activityEndDate && report.submissionDate),
-    budget: financials.budgetLines.length > 0 && totals.missingActualCount === 0,
-    summary: totals.status !== "INCOMPLETE",
-    overspending: totals.status !== "OVERALL OVERSPENT" || Boolean(financials.overspendingExplanation.trim()),
-    refund: totals.status !== "OVERALL UNDERSPENT" || form.refundProof.length >= 1,
-    uploads: form.receipts.length >= 1 && form.photos.length >= 2,
+    sectionA: Boolean(report.requestId && report.projectName.trim() && report.reportingOfficers.trim() && report.activityStartDate && report.activityEndDate && report.submissionDate),
+    sectionB: financials.budgetLines.length > 0 && totals.missingActualCount === 0 &&
+      (totals.status !== "OVERALL OVERSPENT" || Boolean(financials.overspendingExplanation.trim())) &&
+      (totals.status !== "OVERALL UNDERSPENT" || form.refundProof.length >= 1),
+    sectionC: Boolean(
+      report.projectSites.trim() && report.activityTitle.trim() &&
+      report.description.trim() && report.objectives.trim() &&
+      report.achievements.trim() && report.immediateOutcomes.trim() &&
+      Object.values(report.participantData || {}).every(v => v !== "") &&
+      participantTotals.overallTotal > 0 &&
+      Object.values(report.programQuality || {}).every(v => v !== null) &&
+      report.recommendations.trim() && report.challenges.trim() &&
+      report.lessonsLearned.trim() && report.reportWriterSignature
+    ),
+    sectionD: form.receipts.length >= 1 && form.photos.length >= 2 &&
+      (totals.status !== "OVERALL UNDERSPENT" || form.refundProof.length >= 1),
     validation: instantWarnings.length === 0,
   };
   const totalSections = Object.keys(sectionCompletion).length;
@@ -9061,6 +9124,7 @@ function AccountabilityForm({ req, onSave, onClose }) {
 
   const submit = () => {
     const nextErrors = { budgetLines: {} };
+    // Section A
     if (!report.requestId) nextErrors.requestId = "Request ID is required.";
     if (!report.projectName.trim()) nextErrors.projectName = "Project Name is required.";
     if (!report.reportingOfficers.trim()) nextErrors.reportingOfficers = "Reporting Officer is required.";
@@ -9070,12 +9134,36 @@ function AccountabilityForm({ req, onSave, onClose }) {
       nextErrors.activityDates = "Activity end date cannot be earlier than the start date.";
     }
     if (!report.submissionDate) nextErrors.submissionDate = "Submission Date is required.";
+    // Section B
     financials.budgetLines.forEach(line => {
-      if (line.actualAmount === "" || line.actualAmount === null || line.actualAmount === undefined) nextErrors.budgetLines[line.id] = "Actual amount spent is required.";
-      else if (toNumber(line.actualAmount) < 0) nextErrors.budgetLines[line.id] = "Negative values are not allowed.";
+      if (line.actualAmount === "" || line.actualAmount === null || line.actualAmount === undefined) {
+        nextErrors.budgetLines[line.id] = "Actual amount spent is required.";
+      } else if (toNumber(line.actualAmount) < 0) {
+        nextErrors.budgetLines[line.id] = "Negative values are not allowed.";
+      }
     });
-    if (totals.status === "OVERALL OVERSPENT" && !financials.overspendingExplanation.trim()) nextErrors.overspendingExplanation = "Explanation for Overspending is required.";
-    if (totals.status === "OVERALL UNDERSPENT" && form.refundProof.length < 1) nextErrors.refundProof = "Proof of Refund is required when the request is underspent.";
+    if (totals.status === "OVERALL OVERSPENT" && !financials.overspendingExplanation.trim()) nextErrors.overspendingExplanation = "Explanation for overspending is required.";
+    if (totals.status === "OVERALL UNDERSPENT" && form.refundProof.length < 1) nextErrors.refundProof = "Proof of refund is required when the request is underspent.";
+    // Section C
+    if (!report.projectSites.trim()) nextErrors.projectSites = "Project Site(s) is required.";
+    if (!report.activityTitle.trim()) nextErrors.activityTitle = "Activity Title is required.";
+    if (!report.description.trim()) nextErrors.description = "Description of Activity is required.";
+    if (!report.objectives.trim()) nextErrors.objectives = "Activity Objectives is required.";
+    if (!report.achievements.trim()) nextErrors.achievements = "Achievements is required.";
+    if (!report.immediateOutcomes.trim()) nextErrors.immediateOutcomes = "Immediate Outcomes is required.";
+    if (!Object.values(report.participantData || {}).every(v => v !== "")) {
+      nextErrors.participantData = "Enter all participant counts. Use 0 where applicable.";
+    } else if (participantTotals.overallTotal <= 0) {
+      nextErrors.participantData = "Participant totals must be greater than 0.";
+    }
+    if (!Object.values(report.programQuality || {}).every(v => v !== null)) {
+      nextErrors.programQuality = "Please answer every program quality question.";
+    }
+    if (!report.recommendations.trim()) nextErrors.recommendations = "Recommendations / Follow-up Actions is required.";
+    if (!report.challenges.trim()) nextErrors.challenges = "Challenges Encountered is required.";
+    if (!report.lessonsLearned.trim()) nextErrors.lessonsLearned = "Key Lessons Learned is required.";
+    if (!report.reportWriterSignature) nextErrors.reportWriterSignature = "Report writer signature is required.";
+    // Section D
     if (form.receipts.length < 1) nextErrors.receipts = "Upload at least one receipt file.";
     if (form.photos.length < 2) nextErrors.photos = "Upload at least two activity photos.";
     if (!Object.keys(nextErrors.budgetLines).length) delete nextErrors.budgetLines;
@@ -9084,12 +9172,10 @@ function AccountabilityForm({ req, onSave, onClose }) {
     if (Object.keys(nextErrors).length) {
       setSectionsOpen(current => ({
         ...current,
-        basic: current.basic || Boolean(nextErrors.requestId || nextErrors.projectName || nextErrors.reportingOfficers || nextErrors.activityDates || nextErrors.submissionDate),
-        budget: current.budget || Boolean(nextErrors.budgetLines),
-        summary: current.summary || false,
-        overspending: current.overspending || Boolean(nextErrors.overspendingExplanation),
-        refund: current.refund || Boolean(nextErrors.refundProof),
-        uploads: current.uploads || Boolean(nextErrors.receipts || nextErrors.photos),
+        sectionA: current.sectionA || Boolean(nextErrors.requestId || nextErrors.projectName || nextErrors.reportingOfficers || nextErrors.activityDates || nextErrors.submissionDate),
+        sectionB: current.sectionB || Boolean(nextErrors.budgetLines || nextErrors.overspendingExplanation || nextErrors.refundProof),
+        sectionC: current.sectionC || Boolean(nextErrors.projectSites || nextErrors.activityTitle || nextErrors.description || nextErrors.objectives || nextErrors.achievements || nextErrors.immediateOutcomes || nextErrors.participantData || nextErrors.programQuality || nextErrors.recommendations || nextErrors.challenges || nextErrors.lessonsLearned || nextErrors.reportWriterSignature),
+        sectionD: current.sectionD || Boolean(nextErrors.receipts || nextErrors.photos),
         validation: true,
       }));
       return;
@@ -9112,18 +9198,16 @@ function AccountabilityForm({ req, onSave, onClose }) {
           {req.accountabilityRejectedBy && (
             <div className="mt-1 text-sm">
               Feedback from {req.accountabilityRejectedBy}
-              {req.accountabilityRejectedAt ? ` on ${fmt(req.accountabilityRejectedAt)}` : ""}. Please revise the report and resubmit.
+              {req.accountabilityRejectedAt ? ` on ${fmt(req.accountabilityRejectedAt)}` : ""}. Please revise and resubmit.
             </div>
           )}
         </div>
       )}
 
       <AccountabilityFinancialIntro totals={totals} hasExistingDraft={hasExistingDraft} progressPercent={progressPercent} completedSections={completedSections} totalSections={totalSections} />
-      <div className="alert alert-blue" style={{ marginBottom: 16 }}>
-        Upload restrictions: receipts accept PDF, JPG, and PNG only. Refund proof accepts PDF, JPG, or PNG when required. Activity photos accept JPG and PNG only, with a minimum of two files.
-      </div>
 
-      <AccountabilitySectionCard title="Section 1: Basic Details" subtitle="Core reporting identifiers carried from the approved request." open={sectionsOpen.basic} onToggle={() => setSectionsOpen(current => ({ ...current, basic: !current.basic }))} complete={sectionCompletion.basic}>
+      {/* ── SECTION A: Request Financial Summary ── */}
+      <AccountabilitySectionCard title="Section A: Request Financial Summary" subtitle="Pre-filled from the approved request. Confirm reporting officer and activity dates." open={sectionsOpen.sectionA} onToggle={() => setSectionsOpen(current => ({ ...current, sectionA: !current.sectionA }))} complete={sectionCompletion.sectionA}>
         <div className="form-grid">
           <FormField label="Request ID" error={errors.requestId}><input value={report.requestId} readOnly /></FormField>
           <FormField label="Project Name" error={errors.projectName}><input value={report.projectName} readOnly /></FormField>
@@ -9131,74 +9215,168 @@ function AccountabilityForm({ req, onSave, onClose }) {
           <FormField label="Submission Date" error={errors.submissionDate}><input type="date" value={report.submissionDate} readOnly /></FormField>
           <FormField label="Activity Start Date *" error={errors.activityDates}><input type="date" value={report.activityStartDate} onChange={e => setReportField("activityStartDate", e.target.value)} /></FormField>
           <FormField label="Activity End Date *"><input type="date" value={report.activityEndDate} onChange={e => setReportField("activityEndDate", e.target.value)} /></FormField>
+          <FormField label="Approved Amount"><input value={fmtAmt(req.amount || 0)} readOnly /></FormField>
         </div>
       </AccountabilitySectionCard>
 
-      <AccountabilitySectionCard title="Section 2: Budget vs Actual Expenditure" subtitle="Every approved budget line must be accounted for. Budget codes are locked to the approved request." open={sectionsOpen.budget} onToggle={() => setSectionsOpen(current => ({ ...current, budget: !current.budget }))} complete={sectionCompletion.budget}>
+      {/* ── SECTION B: Financial Overview ── */}
+      <AccountabilitySectionCard title="Section B: Financial Overview" subtitle="Budget vs actual expenditure, variance analysis, and overspend / refund handling." open={sectionsOpen.sectionB} onToggle={() => setSectionsOpen(current => ({ ...current, sectionB: !current.sectionB }))} complete={sectionCompletion.sectionB}>
         {errors.budgetLines && <div className="alert alert-red" style={{ marginBottom: 12 }}>Review the highlighted budget lines before submission.</div>}
         <AccountabilityBudgetTable financials={financials} approvedBudgetCodes={approvedBudgetCodes} errors={errors.budgetLines} onActualChange={setActualAmount} />
-      </AccountabilitySectionCard>
-
-      <AccountabilitySectionCard title="Section 3: Variance Summary" subtitle="Totals and variance status update automatically as actual expenditure is entered." open={sectionsOpen.summary} onToggle={() => setSectionsOpen(current => ({ ...current, summary: !current.summary }))} complete={sectionCompletion.summary}>
-        <div className="budget-stats">
+        <div className="budget-stats" style={{ marginTop: 16 }}>
           <div className="budget-stat"><span className="budget-stat-label">Total Budget Approved</span><strong>{fmtAmt(totals.totalApproved)}</strong></div>
           <div className="budget-stat"><span className="budget-stat-label">Total Amount Spent</span><strong>{fmtAmt(totals.totalActual)}</strong></div>
           <div className="budget-stat"><span className="budget-stat-label">Total Balance</span><strong>{fmtAmt(totals.totalVariance)}</strong></div>
         </div>
-        <div style={{ marginTop: 14, padding: "14px 16px", borderRadius: 14, border: `1px solid ${overallStatusMeta.border}`, background: overallStatusMeta.background, color: overallStatusMeta.color, fontWeight: 700 }}>
-          STATUS: {totals.status === "INCOMPLETE" ? "INCOMPLETE - COMPLETE ALL BUDGET LINES" : totals.status}
+        <div style={{ marginTop: 12, padding: "14px 16px", borderRadius: 14, border: `1px solid ${overallStatusMeta.border}`, background: overallStatusMeta.background, color: overallStatusMeta.color, fontWeight: 700 }}>
+          STATUS: {totals.status === "INCOMPLETE" ? "INCOMPLETE — COMPLETE ALL BUDGET LINES" : totals.status}
+        </div>
+        {totals.status === "OVERALL OVERSPENT" && (
+          <div style={{ marginTop: 16 }}>
+            <FormField label="Explanation for Overspending *" error={errors.overspendingExplanation} full>
+              <textarea rows={4} value={financials.overspendingExplanation || ""} onChange={e => setOverspendingExplanation(e.target.value)} placeholder="Explain why actual spending exceeded the approved budget and what authorization or mitigation applies." />
+            </FormField>
+          </div>
+        )}
+        {totals.status !== "OVERALL OVERSPENT" && totals.status !== "INCOMPLETE" && (
+          <div className="alert alert-green" style={{ marginTop: 12, marginBottom: 0 }}>Overspending handling is not required.</div>
+        )}
+      </AccountabilitySectionCard>
+
+      {/* ── SECTION C: Activity Report ── */}
+      <AccountabilitySectionCard title="Section C: Activity Report" subtitle="Full narrative of what was implemented, who was reached, and key learnings from the activity." open={sectionsOpen.sectionC} onToggle={() => setSectionsOpen(current => ({ ...current, sectionC: !current.sectionC }))} complete={sectionCompletion.sectionC}>
+        <div className="form-grid" style={{ marginBottom: 20 }}>
+          <FormField label="Project Site(s) *" error={errors.projectSites} full><input value={report.projectSites} onChange={e => setReportField("projectSites", e.target.value)} /></FormField>
+          <FormField label="Activity Title *" error={errors.activityTitle} full><input value={report.activityTitle} onChange={e => setReportField("activityTitle", e.target.value)} /></FormField>
+          <FormField label="Description of Activity *" error={errors.description} hint="Include the introduction, methodology, and approach used during delivery." full>
+            <textarea rows={6} value={report.description} onChange={e => setReportField("description", e.target.value)} />
+          </FormField>
+          <FormField label="Activity Objectives *" error={errors.objectives} full>
+            <textarea rows={4} value={report.objectives} onChange={e => setReportField("objectives", e.target.value)} />
+          </FormField>
+          <FormField label="Achievements *" error={errors.achievements} full>
+            <textarea rows={4} value={report.achievements} onChange={e => setReportField("achievements", e.target.value)} />
+          </FormField>
+          <FormField label="Immediate Outcomes *" error={errors.immediateOutcomes} full>
+            <textarea rows={4} value={report.immediateOutcomes} onChange={e => setReportField("immediateOutcomes", e.target.value)} />
+          </FormField>
+          <FormField label="Outputs" full>
+            <textarea rows={3} value={report.outputs} onChange={e => setReportField("outputs", e.target.value)} />
+          </FormField>
+        </div>
+
+        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--navy)", marginBottom: 10 }}>Participant Data</div>
+        <div className="table-wrap" style={{ marginBottom: 12 }}>
+          <table>
+            <thead><tr><th>Category</th><th>Below 16</th><th>16–30</th><th>Above 30</th><th>Total</th></tr></thead>
+            <tbody>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Male</td>
+                <td><input type="number" min="0" value={report.participantData.maleBelow16} onChange={e => setParticipantField("maleBelow16", e.target.value)} /></td>
+                <td><input type="number" min="0" value={report.participantData.male16To30} onChange={e => setParticipantField("male16To30", e.target.value)} /></td>
+                <td><input type="number" min="0" value={report.participantData.maleAbove30} onChange={e => setParticipantField("maleAbove30", e.target.value)} /></td>
+                <td style={{ fontWeight: 700, color: "var(--navy)" }}>{participantTotals.maleTotal}</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Female</td>
+                <td><input type="number" min="0" value={report.participantData.femaleBelow16} onChange={e => setParticipantField("femaleBelow16", e.target.value)} /></td>
+                <td><input type="number" min="0" value={report.participantData.female16To30} onChange={e => setParticipantField("female16To30", e.target.value)} /></td>
+                <td><input type="number" min="0" value={report.participantData.femaleAbove30} onChange={e => setParticipantField("femaleAbove30", e.target.value)} /></td>
+                <td style={{ fontWeight: 700, color: "var(--navy)" }}>{participantTotals.femaleTotal}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {errors.participantData && <div className="field-error" style={{ marginBottom: 12 }}>{errors.participantData}</div>}
+        <div className="grid-2" style={{ marginBottom: 10 }}>
+          <FormField label="PWD – Female"><input type="number" min="0" value={report.participantData.pwdFemale} onChange={e => setParticipantField("pwdFemale", e.target.value)} /></FormField>
+          <FormField label="PWD – Male"><input type="number" min="0" value={report.participantData.pwdMale} onChange={e => setParticipantField("pwdMale", e.target.value)} /></FormField>
+        </div>
+        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", marginBottom: 20 }}>
+          <div className="file-info"><div style={{ fontWeight: 700, color: "var(--navy)" }}>Overall Participants</div><div>{participantTotals.overallTotal}</div></div>
+          <div className="file-info"><div style={{ fontWeight: 700, color: "var(--navy)" }}>PWD Female</div><div>{participantTotals.pwdFemale}</div></div>
+          <div className="file-info"><div style={{ fontWeight: 700, color: "var(--navy)" }}>PWD Male</div><div>{participantTotals.pwdMale}</div></div>
+          <div className="file-info"><div style={{ fontWeight: 700, color: "var(--navy)" }}>PWD Total</div><div>{participantTotals.pwdTotal}</div></div>
+        </div>
+
+        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--navy)", marginBottom: 10 }}>Program Quality Markers</div>
+        {errors.programQuality && <div className="field-error" style={{ marginBottom: 12 }}>{errors.programQuality}</div>}
+        <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
+          <AccountabilityToggleField label="Gender mainstreamed?" value={report.programQuality.genderMainstreamed} onChange={value => setProgramQualityField("genderMainstreamed", value)} />
+          <AccountabilityToggleField label="Inclusive governance mainstreamed?" value={report.programQuality.inclusiveGovernance} onChange={value => setProgramQualityField("inclusiveGovernance", value)} />
+          <AccountabilityToggleField label="Resilience mainstreamed?" value={report.programQuality.resilienceMainstreamed} onChange={value => setProgramQualityField("resilienceMainstreamed", value)} />
+          <AccountabilityToggleField label="Activity addressed GBV?" value={report.programQuality.addressedGbv} onChange={value => setProgramQualityField("addressedGbv", value)} />
+          <AccountabilityToggleField label="Safeguarding included?" value={report.programQuality.safeguardingIncluded} onChange={value => setProgramQualityField("safeguardingIncluded", value)} />
+          <AccountabilityToggleField label="Implemented with / through partner?" value={report.programQuality.implementedWithPartner} onChange={value => setProgramQualityField("implementedWithPartner", value)} />
+        </div>
+
+        <div className="form-grid" style={{ marginBottom: 20 }}>
+          <FormField label="Recommendations / Follow-up Actions *" error={errors.recommendations} full>
+            <textarea rows={4} value={report.recommendations} onChange={e => setReportField("recommendations", e.target.value)} />
+          </FormField>
+          <FormField label="Challenges Encountered *" error={errors.challenges} full>
+            <textarea rows={4} value={report.challenges} onChange={e => setReportField("challenges", e.target.value)} />
+          </FormField>
+          <FormField label="Key Lessons Learned *" error={errors.lessonsLearned} full>
+            <textarea rows={4} value={report.lessonsLearned} onChange={e => setReportField("lessonsLearned", e.target.value)} />
+          </FormField>
+        </div>
+
+        <div className="grid-2" style={{ alignItems: "start" }}>
+          <FormField label="Report Writer Signature *" error={errors.reportWriterSignature} hint="Type or draw the reporting officer signature.">
+            <SignaturePad value={report.reportWriterSignature} onChange={value => setReportField("reportWriterSignature", value)} />
+          </FormField>
+          <div style={{ display: "grid", gap: 12 }}>
+            <FormField label="Supervisor Comments" hint="Completed during supervisor review.">
+              <textarea rows={4} value={report.supervisorComments} readOnly placeholder="Supervisor comments will appear here once review is completed." />
+            </FormField>
+            <FormField label="Supervisor Name"><input value={report.supervisorName} readOnly /></FormField>
+            <FormField label="Supervisor Signature">{renderSignaturePreview(report.supervisorSignature, "Supervisor signature will populate after approval.")}</FormField>
+            <FormField label="Supervisor Date"><input type="date" value={report.supervisorDate} readOnly /></FormField>
+          </div>
         </div>
       </AccountabilitySectionCard>
 
-      <AccountabilitySectionCard title="Section 4: Overspending Handling" subtitle="Required only when total actual expenditure exceeds the approved budget." open={sectionsOpen.overspending} onToggle={() => setSectionsOpen(current => ({ ...current, overspending: !current.overspending }))} complete={sectionCompletion.overspending}>
-        {totals.status === "OVERALL OVERSPENT" ? (
-          <FormField label="Explanation for Overspending *" error={errors.overspendingExplanation} full>
-            <textarea rows={5} value={financials.overspendingExplanation || ""} onChange={e => setOverspendingExplanation(e.target.value)} placeholder="Explain why actual spending exceeded the approved budget and what authorization or mitigation applies." />
-          </FormField>
-        ) : (
-          <div className="alert alert-green" style={{ marginBottom: 0 }}>Overspending handling is not required unless the total actual amount exceeds the approved budget.</div>
-        )}
-      </AccountabilitySectionCard>
-
-      <AccountabilitySectionCard title="Section 5: Under-spending & Refund Handling" subtitle="Refund evidence becomes mandatory when the request is underspent." open={sectionsOpen.refund} onToggle={() => setSectionsOpen(current => ({ ...current, refund: !current.refund }))} complete={sectionCompletion.refund}>
-        {totals.status === "OVERALL UNDERSPENT" ? (
-          <div className="grid-2" style={{ alignItems: "start" }}>
-            <FormField label="Amount to be Refunded" full><input value={fmtAmt(totals.refundAmount)} readOnly /></FormField>
-            <div />
-            <FormField label="Proof of Refund *" error={errors.refundProof} hint="Accepted formats: PDF, JPG, PNG.">
-              <MultiFileUploadField value={form.refundProof} onChange={files => setForm(current => ({ ...current, refundProof: files }))} accept={ACCOUNTABILITY_REFUND_PROOF_ACCEPT} allowedExtensions={ACCOUNTABILITY_REFUND_PROOF_EXTENSIONS} emptyTitle="Upload Refund Proof" emptyHint="Choose the refund receipt or transfer evidence." minimumHint="A refund proof file is required before submission." icon="payments" error={errors.refundProof} multiple={false} />
-            </FormField>
-          </div>
-        ) : (
-          <div className="alert alert-green" style={{ marginBottom: 0 }}>Refund accountability is not required unless the total actual amount is lower than the approved budget.</div>
-        )}
-      </AccountabilitySectionCard>
-
-      <AccountabilitySectionCard title="Section 6: Supporting Documents" subtitle="Only expense receipts and activity photos are accepted with this submission." open={sectionsOpen.uploads} onToggle={() => setSectionsOpen(current => ({ ...current, uploads: !current.uploads }))} complete={sectionCompletion.uploads}>
+      {/* ── SECTION D: Attachments ── */}
+      <AccountabilitySectionCard title="Section D: Attachments" subtitle="Upload receipts, activity photos, and refund proof where required." open={sectionsOpen.sectionD} onToggle={() => setSectionsOpen(current => ({ ...current, sectionD: !current.sectionD }))} complete={sectionCompletion.sectionD}>
+        <div className="alert alert-blue" style={{ marginBottom: 16 }}>
+          Receipts accept PDF, JPG, and PNG. Activity photos accept JPG and PNG only — minimum 2. Refund proof is required when total actual spend is below the approved budget.
+        </div>
         <div className="grid-2" style={{ alignItems: "start" }}>
           <FormField label="Upload Receipts *" hint="Accepted formats: PDF, JPG, PNG. Multiple files allowed.">
             <MultiFileUploadField value={form.receipts} onChange={files => setForm(current => ({ ...current, receipts: files }))} accept={ACCOUNTABILITY_RECEIPT_ACCEPT} allowedExtensions={ACCOUNTABILITY_RECEIPT_EXTENSIONS} emptyTitle="Upload Receipts" emptyHint="Choose one or more PDF, JPG, or PNG receipt files." minimumHint="At least 1 file is required." icon="payments" error={errors.receipts} />
           </FormField>
-          <FormField label="Upload Activity Photos *" hint="Accepted formats: JPG, PNG only.">
+          <FormField label="Upload Activity Photos *" hint="Accepted formats: JPG, PNG only. Minimum 2 photos required.">
             <MultiFileUploadField value={form.photos} onChange={files => setForm(current => ({ ...current, photos: files }))} accept={ACCOUNTABILITY_PHOTO_ACCEPT} allowedExtensions={ACCOUNTABILITY_PHOTO_EXTENSIONS} emptyTitle="Upload Activity Photos" emptyHint="Choose JPG or PNG images only." minimumHint="At least 2 photos are required." icon="doc" error={errors.photos} />
           </FormField>
         </div>
+        {totals.status === "OVERALL UNDERSPENT" ? (
+          <div style={{ marginTop: 16 }}>
+            <div className="grid-2">
+              <FormField label="Amount to be Refunded"><input value={fmtAmt(totals.refundAmount)} readOnly /></FormField>
+              <div />
+            </div>
+            <FormField label="Proof of Refund *" error={errors.refundProof} hint="Required when total actual is below the approved budget. Accepted: PDF, JPG, PNG.">
+              <MultiFileUploadField value={form.refundProof} onChange={files => setForm(current => ({ ...current, refundProof: files }))} accept={ACCOUNTABILITY_REFUND_PROOF_ACCEPT} allowedExtensions={ACCOUNTABILITY_REFUND_PROOF_EXTENSIONS} emptyTitle="Upload Refund Proof" emptyHint="Choose the refund receipt or transfer evidence." minimumHint="A refund proof file is required before submission." icon="payments" error={errors.refundProof} multiple={false} />
+            </FormField>
+          </div>
+        ) : (
+          <div className="alert alert-green" style={{ marginTop: 12, marginBottom: 0 }}>Refund proof is not required — expenditure is within the approved budget.</div>
+        )}
       </AccountabilitySectionCard>
 
-      <AccountabilitySectionCard title="Section 7: Validation Rules" subtitle="Warnings update instantly and submission is blocked until every requirement is satisfied." open={sectionsOpen.validation} onToggle={() => setSectionsOpen(current => ({ ...current, validation: !current.validation }))} complete={sectionCompletion.validation}>
+      {/* ── Submission Readiness ── */}
+      <AccountabilitySectionCard title="Submission Readiness" subtitle="All items must be resolved before the form can be submitted." open={sectionsOpen.validation} onToggle={() => setSectionsOpen(current => ({ ...current, validation: !current.validation }))} complete={sectionCompletion.validation}>
         {instantWarnings.length ? (
-          <div className="alert alert-amber" style={{ marginBottom: 12 }}>
+          <div className="alert alert-amber">
             <strong>Submission is blocked until the following items are resolved:</strong>
             <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
               {instantWarnings.map((warning, index) => <div key={`${warning}-${index}`}>{warning}</div>)}
             </div>
           </div>
         ) : (
-          <div className="alert alert-green" style={{ marginBottom: 12 }}>All validations are satisfied. Submission will lock this form and assign it to the supervisor.</div>
+          <div className="alert alert-green">All validations satisfied. Submission will route this accountability package to the supervisor for review.</div>
         )}
-        <div style={{ padding: "14px 16px", borderRadius: 14, border: "1px solid #dbe4f0", background: "#f8fbff", color: "var(--g700)", lineHeight: 1.7 }}>
-          On submission the request status changes to <strong>ACCOUNTABILITY SUBMITTED</strong>, editing is locked until review feedback reopens it, and the package is routed to the assigned supervisor with all budget variances, refund status, receipts, photos, and refund proof retained for audit traceability.
-        </div>
       </AccountabilitySectionCard>
 
       <div className="flex gap-3" style={{ justifyContent: "flex-end", flexWrap: "wrap", marginTop: 6 }}>
@@ -12627,7 +12805,19 @@ export default function App() {
     const result = payRequest(r, user, ref, date);
     if (result.ok) {
       syncState();
-      supabase.from("requests").update({ status: r.status }).eq("request_number", r.id)
+      supabase.from("requests").update({
+        status: r.status,
+        supporting_docs: {
+          ...buildRequestSupportingDocs(r),
+          transactionId:        r.transactionId        || null,
+          paymentNumber:        r.paymentNumber        || null,
+          paymentDate:          r.paymentDate          || null,
+          paidByName:           r.paidByName           || null,
+          paidById:             r.paidById             || null,
+          paidAt:               r.paidAt               || null,
+          accountabilityStatus: r.accountabilityStatus || "PENDING",
+        },
+      }).eq("request_number", r.id)
         .then(({ error }) => { if (error) console.warn("Could not update payment status:", error.message); });
       const requester = _users.find(u => u.id === r.requesterId);
       if (requester?.email) {
@@ -13151,11 +13341,38 @@ export default function App() {
         if (status === "CHANNEL_ERROR") console.warn("[realtime-ann] channel error — check Supabase Realtime is enabled for announcements");
       });
 
+    const reqChannel = supabase
+      .channel(`req-changes-${uid}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "requests" }, ({ new: row }) => {
+        const target = _requests.find(r => r.id === row.request_number || r.id === row.id);
+        if (!target) return;
+        const prevStatus = target.status;
+        target.status = row.status || target.status;
+        const sd = row.supporting_docs || {};
+        if (sd.transactionId)        target.transactionId        = sd.transactionId;
+        if (sd.paymentDate)          target.paymentDate          = sd.paymentDate;
+        if (sd.paidByName)           target.paidByName           = sd.paidByName;
+        if (sd.paidById)             target.paidById             = sd.paidById;
+        if (sd.paidAt)               target.paidAt               = sd.paidAt;
+        if (sd.paymentNumber)        target.paymentNumber        = sd.paymentNumber;
+        if (sd.accountabilityStatus) target.accountabilityStatus = sd.accountabilityStatus;
+        if (sd.supervisorId)         target.supervisorId         = sd.supervisorId;
+        if (sd.supervisorName)       target.supervisorName       = sd.supervisorName;
+        if (target.status !== prevStatus || sd.transactionId) {
+          saveState();
+          refresh();
+        }
+      })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") console.warn("[realtime-req] channel error — check Supabase Realtime is enabled for requests");
+      });
+
     return () => {
       supabase.removeChannel(msgChannel);
       supabase.removeChannel(annChannel);
+      supabase.removeChannel(reqChannel);
     };
-  }, [user?.id, bumpMsgTick]);
+  }, [user?.id, bumpMsgTick, refresh]);
 
   useEffect(() => {
     if (!user) return;
