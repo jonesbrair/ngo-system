@@ -94,6 +94,9 @@ async function fetchRequestsFromDB() {
       if (sd.paidAt)               exists.paidAt               = sd.paidAt;
       if (sd.paymentNumber)        exists.paymentNumber        = sd.paymentNumber;
       if (sd.accountabilityStatus) exists.accountabilityStatus = sd.accountabilityStatus;
+      if (!exists.projectName  && sd.projectName)  exists.projectName  = sd.projectName;
+      if (!exists.activityName && sd.activityName) exists.activityName = sd.activityName;
+      if (!exists.activityCode && sd.activityCode) exists.activityCode = sd.activityCode;
       if (Array.isArray(row.request_approvals) && row.request_approvals.length >= exists.approvals.length) {
         const userMap2 = new Map(_users.map(u => [u.id, u]));
         exists.approvals = row.request_approvals.map(a => ({
@@ -122,11 +125,11 @@ async function fetchRequestsFromDB() {
       status:              row.status,
       createdAt:           row.submission_date || row.created_at,
       projectId:           row.project_id || "",
-      projectName:         project?.name || "",
+      projectName:         project?.name || extra.projectName || "",
       donorName:           project?.donorName || "",
       activityId:          row.activity_id || "",
-      activityName:        activity?.name || "",
-      activityCode:        activity?.code || "",
+      activityName:        activity?.name || extra.activityName || "",
+      activityCode:        activity?.code || extra.activityCode || "",
       activityBudget:      activity?.budgetAmount || 0,
       requesterId:         row.requester_id || "",
       requesterName:       requester?.name || "",
@@ -1091,6 +1094,11 @@ function buildRequestSupportingDocs(req) {
     supervisorId:            req.supervisorId            ?? null,
     supervisorName:          req.supervisorName          || "Unassigned",
     lastRejectionReason:     req.lastRejectionReason     ?? null,
+    projectId:               req.projectId               || "",
+    projectName:             req.projectName             || "",
+    activityId:              req.activityId              || "",
+    activityName:            req.activityName            || "",
+    activityCode:            req.activityCode            || "",
     // Concept note structured fields
     activityTitle:           req.activityTitle           || "",
     startDate:               req.startDate               || "",
