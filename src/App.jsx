@@ -2224,7 +2224,7 @@ function payRequest(req, payer, transactionId, paymentDate) {
       target.requesterId,
       `Payment received for "${target.title}" (Transaction ID: ${txId}). Please submit your accountability.`,
       target.id,
-      { page:"my_requests" },
+      { page:"pending_accountability" },
     );
   }
 
@@ -13408,6 +13408,21 @@ export default function App() {
         if (sd.accountabilityStatus) target.accountabilityStatus = sd.accountabilityStatus;
         if (sd.supervisorId)         target.supervisorId         = sd.supervisorId;
         if (sd.supervisorName)       target.supervisorName       = sd.supervisorName;
+        // Sync accountability fields so reviewers see the report data instantly
+        if (sd.accountabilityReportData      != null) target.accountabilityReportData      = sd.accountabilityReportData;
+        if (sd.accountabilityReceipts?.length)        target.accountabilityReceipts        = sd.accountabilityReceipts;
+        if (sd.accountabilityPhotos?.length)          target.accountabilityPhotos          = sd.accountabilityPhotos;
+        if (sd.accountabilityRefundProof?.length)     target.accountabilityRefundProof     = sd.accountabilityRefundProof;
+        if (sd.accountabilityRefundStatus    != null) target.accountabilityRefundStatus    = sd.accountabilityRefundStatus;
+        if (sd.accountabilityFinanceSummary  != null) target.accountabilityFinanceSummary  = sd.accountabilityFinanceSummary;
+        if (sd.accountabilitySubmittedAt     != null) target.accountabilitySubmittedAt     = sd.accountabilitySubmittedAt;
+        if (sd.accountabilitySubmittedByName != null) target.accountabilitySubmittedByName = sd.accountabilitySubmittedByName;
+        target.accountabilityRejectionReason = sd.accountabilityRejectionReason ?? target.accountabilityRejectionReason ?? null;
+        if (sd.accountabilityRejectedBy      != null) target.accountabilityRejectedBy      = sd.accountabilityRejectedBy;
+        if (sd.accountabilityRejectedByRole  != null) target.accountabilityRejectedByRole  = sd.accountabilityRejectedByRole;
+        if (sd.accountabilityRejectedAt      != null) target.accountabilityRejectedAt      = sd.accountabilityRejectedAt;
+        if (sd.completedAt                   != null) target.completedAt                   = sd.completedAt;
+        if (sd.completedByName               != null) target.completedByName               = sd.completedByName;
         if (target.status !== prevStatus || sd.transactionId) {
           saveState();
           refresh();
